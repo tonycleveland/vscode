@@ -13,17 +13,19 @@ import { IAction, Action } from 'vs/base/common/actions';
 import { KeyCode } from 'vs/base/common/keyCodes';
 import keyboard = require('vs/base/browser/keyboardEvent');
 import editorbrowser = require('vs/editor/browser/editorBrowser');
+import { editorContribution } from 'vs/editor/browser/editorBrowserExtensions';
 import editorcommon = require('vs/editor/common/editorCommon');
 import { DebugHoverWidget } from 'vs/workbench/parts/debug/electron-browser/debugHover';
 import debugactions = require('vs/workbench/parts/debug/browser/debugActions');
 import debug = require('vs/workbench/parts/debug/common/debug');
-import { IWorkspaceContextService } from 'vs/workbench/services/workspace/common/contextService';
 import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
 import { IContextMenuService } from 'vs/platform/contextview/browser/contextView';
-import {Range} from 'vs/editor/common/core/range';
+import { Range } from 'vs/editor/common/core/range';
+import { ICodeEditorService } from 'vs/editor/common/services/codeEditorService';
 
 const HOVER_DELAY = 300;
 
+@editorContribution
 export class DebugEditorContribution implements debug.IDebugEditorContribution {
 
 	private toDispose: lifecycle.IDisposable[];
@@ -34,16 +36,12 @@ export class DebugEditorContribution implements debug.IDebugEditorContribution {
 	private hoverRange: Range;
 	private hoveringOver: string;
 
-	static getDebugEditorContribution(editor: editorcommon.ICommonCodeEditor): DebugEditorContribution {
-		return <DebugEditorContribution>editor.getContribution(debug.EDITOR_CONTRIBUTION_ID);
-	}
-
 	constructor(
 		private editor: editorbrowser.ICodeEditor,
 		@debug.IDebugService private debugService: debug.IDebugService,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
 		@IContextMenuService private contextMenuService: IContextMenuService,
-		@IInstantiationService private instantiationService: IInstantiationService
+		@IInstantiationService private instantiationService: IInstantiationService,
+		@ICodeEditorService private codeEditorService: ICodeEditorService
 	) {
 		this.breakpointHintDecoration = [];
 		this.hoverWidget = new DebugHoverWidget(this.editor, this.debugService, this.instantiationService);
@@ -119,12 +117,18 @@ export class DebugEditorContribution implements debug.IDebugEditorContribution {
 		this.toDispose.push(this.editor.onMouseLeave((e: editorbrowser.IEditorMouseEvent) => {
 			this.ensureBreakpointHintDecoration(-1);
 		}));
-		this.toDispose.push(this.debugService.onDidChangeState(state => this.onDebugStateUpdate(state)));
+		this.toDispose.push(this.debugService.onDidChangeState(() => this.onDebugStateUpdate()));
 
 		// hover listeners & hover widget
 		this.toDispose.push(this.editor.onMouseDown((e: editorbrowser.IEditorMouseEvent) => this.onEditorMouseDown(e)));
 		this.toDispose.push(this.editor.onMouseMove((e: editorbrowser.IEditorMouseEvent) => this.onEditorMouseMove(e)));
-		this.toDispose.push(this.editor.onMouseLeave((e: editorbrowser.IEditorMouseEvent) => this.hoverWidget.hide()));
+		this.toDispose.push(this.editor.onMouseLeave((e: editorbrowser.IEditorMouseEvent) => {
+			const rect = this.hoverWidget.getDomNode().getBoundingClientRect();
+			// Only hide the hover widget if the editor mouse leave event is outside the hover widget #3528
+			if (e.event.posx < rect.left || e.event.posx > rect.right || e.event.posy < rect.top || e.event.posy > rect.bottom) {
+				this.hideHoverWidget();
+			}
+		}));
 		this.toDispose.push(this.editor.onKeyDown((e: keyboard.IKeyboardEvent) => this.onKeyDown(e)));
 		this.toDispose.push(this.editor.onDidChangeModel(() => this.hideHoverWidget()));
 		this.toDispose.push(this.editor.onDidScrollChange(() => this.hideHoverWidget));
@@ -155,12 +159,13 @@ export class DebugEditorContribution implements debug.IDebugEditorContribution {
 		this.breakpointHintDecoration = this.editor.deltaDecorations(this.breakpointHintDecoration, newDecoration);
 	}
 
-	private onDebugStateUpdate(state: debug.State): void {
+	private onDebugStateUpdate(): void {
+		const state = this.debugService.state;
 		if (state !== debug.State.Stopped) {
 			this.hideHoverWidget();
 		}
-		this.contextService.updateOptions('editor', {
-			hover: state !== debug.State.Stopped
+		this.codeEditorService.listCodeEditors().forEach(e => {
+			e.updateOptions({ hover: state !== debug.State.Stopped });
 		});
 	}
 

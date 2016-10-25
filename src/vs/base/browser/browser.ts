@@ -6,8 +6,8 @@
 
 import types = require('vs/base/common/types');
 import * as Platform from 'vs/base/common/platform';
-import Event, {Emitter} from 'vs/base/common/event';
-import {IDisposable} from 'vs/base/common/lifecycle';
+import Event, { Emitter } from 'vs/base/common/event';
+import { IDisposable } from 'vs/base/common/lifecycle';
 
 class ZoomManager {
 
@@ -18,13 +18,13 @@ class ZoomManager {
 	private _pixelRatioComputed: boolean = false;
 
 	private _onDidChangeZoomLevel: Emitter<number> = new Emitter<number>();
-	public onDidChangeZoomLevel:Event<number> = this._onDidChangeZoomLevel.event;
+	public onDidChangeZoomLevel: Event<number> = this._onDidChangeZoomLevel.event;
 
 	public getZoomLevel(): number {
 		return this._zoomLevel;
 	}
 
-	public setZoomLevel(zoomLevel:number): void {
+	public setZoomLevel(zoomLevel: number): void {
 		if (this._zoomLevel === zoomLevel) {
 			return;
 		}
@@ -45,11 +45,11 @@ class ZoomManager {
 	private _computePixelRatio(): number {
 		let ctx = document.createElement('canvas').getContext('2d');
 		let dpr = window.devicePixelRatio || 1;
-		let bsr = 	(<any>ctx).webkitBackingStorePixelRatio ||
-					(<any>ctx).mozBackingStorePixelRatio ||
-					(<any>ctx).msBackingStorePixelRatio ||
-					(<any>ctx).oBackingStorePixelRatio ||
-					(<any>ctx).backingStorePixelRatio || 1;
+		let bsr = (<any>ctx).webkitBackingStorePixelRatio ||
+			(<any>ctx).mozBackingStorePixelRatio ||
+			(<any>ctx).msBackingStorePixelRatio ||
+			(<any>ctx).oBackingStorePixelRatio ||
+			(<any>ctx).backingStorePixelRatio || 1;
 		return dpr / bsr;
 	}
 }
@@ -60,10 +60,10 @@ export function getZoomLevel(): number {
 export function getPixelRatio(): number {
 	return ZoomManager.INSTANCE.getPixelRatio();
 }
-export function setZoomLevel(zoomLevel:number): void {
+export function setZoomLevel(zoomLevel: number): void {
 	ZoomManager.INSTANCE.setZoomLevel(zoomLevel);
 }
-export function onDidChangeZoomLevel(callback:(zoomLevel:number)=>void): IDisposable {
+export function onDidChangeZoomLevel(callback: (zoomLevel: number) => void): IDisposable {
 	return ZoomManager.INSTANCE.onDidChangeZoomLevel(callback);
 }
 
@@ -78,6 +78,8 @@ export const isIE9 = (userAgent.indexOf('MSIE 9') >= 0);
 export const isIE11orEarlier = isIE11 || isIE10 || isIE9;
 export const isIE10orEarlier = isIE10 || isIE9;
 export const isIE10orLater = isIE11 || isIE10;
+export const isEdge = (userAgent.indexOf('Edge/') >= 0);
+export const isEdgeOrIE = isEdge || isIE11 || isIE10 || isIE9;
 
 export const isOpera = (userAgent.indexOf('Opera') >= 0);
 export const isFirefox = (userAgent.indexOf('Firefox') >= 0);

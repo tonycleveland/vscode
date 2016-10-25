@@ -5,19 +5,15 @@
 
 import { toObject, assign, getOrDefault } from 'vs/base/common/objects';
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
-import { Gesture } from 'vs/base/browser/touch';
+import { Gesture, EventType as TouchEventType, GestureEvent } from 'vs/base/browser/touch';
 import * as DOM from 'vs/base/browser/dom';
+import { domEvent } from 'vs/base/browser/event';
 import { ScrollableElement } from 'vs/base/browser/ui/scrollbar/scrollableElement';
+import { ScrollEvent } from 'vs/base/common/scrollable';
 import { ScrollbarVisibility } from 'vs/base/common/scrollable';
 import { RangeMap, IRange, relativeComplement, each } from './rangeMap';
 import { IDelegate, IRenderer } from './list';
 import { RowCache, IRow } from './rowCache';
-
-interface IItemRange<T> {
-	item: IItem<T>;
-	index: number;
-	range: IRange;
-}
 
 interface IItem<T> {
 	id: string;
@@ -59,7 +55,7 @@ export class ListView<T> implements IDisposable {
 	private gesture: Gesture;
 	private rowsContainer: HTMLElement;
 	private scrollableElement: ScrollableElement;
-	private toDispose: IDisposable[];
+	private disposables: IDisposable[];
 
 	constructor(
 		container: HTMLElement,
@@ -85,18 +81,20 @@ export class ListView<T> implements IDisposable {
 
 		this.scrollableElement = new ScrollableElement(this.rowsContainer, {
 			canUseTranslate3d: false,
+			alwaysConsumeMouseWheel: true,
 			horizontal: ScrollbarVisibility.Hidden,
 			vertical: ScrollbarVisibility.Auto,
 			useShadows: getOrDefault(options, o => o.useShadows, DefaultOptions.useShadows),
 			saveLastScrollTimeOnClassName: 'monaco-list-row'
 		});
 
-		const listener = this.scrollableElement.onScroll(e => this.render(e.scrollTop, e.height));
-
 		this._domNode.appendChild(this.scrollableElement.getDomNode());
 		container.appendChild(this._domNode);
 
-		this.toDispose = [this.rangeMap, this.gesture, listener, this.scrollableElement];
+		this.disposables = [this.rangeMap, this.gesture, this.scrollableElement];
+
+		this.scrollableElement.onScroll(this.onScroll, this, this.disposables);
+		domEvent(this.rowsContainer, TouchEventType.Change)(this.onTouchChange, this, this.disposables);
 
 		this.layout();
 	}
@@ -125,7 +123,7 @@ export class ListView<T> implements IDisposable {
 		each(renderRange, i => this.insertItemInDOM(this.items[i], i));
 
 		const scrollHeight = this.getContentHeight();
-		this.rowsContainer.style.height = `${ scrollHeight }px`;
+		this.rowsContainer.style.height = `${scrollHeight}px`;
 		this.scrollableElement.updateState({ scrollHeight });
 
 		return deleted.map(i => i.element);
@@ -177,7 +175,9 @@ export class ListView<T> implements IDisposable {
 		rangesToInsert.forEach(range => each(range, i => this.insertItemInDOM(this.items[i], i)));
 		rangesToRemove.forEach(range => each(range, i => this.removeItemFromDOM(this.items[i])));
 
-		this.rowsContainer.style.transform = `translate3d(0px, -${ renderTop }px, 0px)`;
+		const transform = `translate3d(0px, -${renderTop}px, 0px)`;
+		this.rowsContainer.style.transform = transform;
+		this.rowsContainer.style.webkitTransform = transform;
 		this.lastRenderTop = renderTop;
 		this.lastRenderHeight = renderHeight;
 	}
@@ -194,8 +194,8 @@ export class ListView<T> implements IDisposable {
 		}
 
 		const renderer = this.renderers[item.templateId];
-		item.row.domNode.style.top = `${ this.elementTop(index) }px`;
-		item.row.domNode.style.height = `${ item.size }px`;
+		item.row.domNode.style.top = `${this.elementTop(index)}px`;
+		item.row.domNode.style.height = `${item.size}px`;
 		item.row.domNode.setAttribute('data-index', `${index}`);
 		renderer.renderElement(item.element, index, item.row.templateData);
 	}
@@ -217,29 +217,61 @@ export class ListView<T> implements IDisposable {
 		this.scrollableElement.updateState({ scrollTop });
 	}
 
-	// Events
-
-	addListener(type: string, handler: (event:any)=>void, useCapture?: boolean): IDisposable {
-		if (MouseEventTypes.indexOf(type) > -1) {
-			const userHandler = handler;
-			handler = (event: MouseEvent) => {
-				const index = this.getItemIndex(event);
-
-				if (index < 0) {
-					return;
-				}
-
-				const element = this.items[index].element;
-				userHandler(assign(event, { element, index }));
-			};
-		}
-
-		return DOM.addDisposableListener(this.domNode, type, handler, useCapture);
+	get scrollTop(): number {
+		return this.getScrollTop();
 	}
 
-	private getItemIndex(event: MouseEvent): number {
-		let target = event.target;
+	set scrollTop(scrollTop: number) {
+		this.setScrollTop(scrollTop);
+	}
 
+	// Events
+
+	addListener(type: string, handler: (event: any) => void, useCapture?: boolean): IDisposable {
+		const userHandler = handler;
+		let domNode = this.domNode;
+
+		if (MouseEventTypes.indexOf(type) > -1) {
+			handler = e => this.fireScopedEvent(userHandler, this.getItemIndexFromMouseEvent(e));
+		} else if (type === TouchEventType.Tap) {
+			domNode = this.rowsContainer;
+			handler = e => this.fireScopedEvent(userHandler, this.getItemIndexFromGestureEvent(e));
+		}
+
+		return DOM.addDisposableListener(domNode, type, handler, useCapture);
+	}
+
+	private fireScopedEvent(handler: (event: any) => void, index) {
+		if (index < 0) {
+			return;
+		}
+
+		const element = this.items[index].element;
+		handler(assign(event, { element, index }));
+	}
+
+	private onScroll(e: ScrollEvent): void {
+		this.render(e.scrollTop, e.height);
+	}
+
+	private onTouchChange(e: GestureEvent): void {
+		event.preventDefault();
+		event.stopPropagation();
+
+		this.scrollTop -= e.translationY;
+	}
+
+	// Util
+
+	private getItemIndexFromMouseEvent(event: MouseEvent): number {
+		return this.getItemIndexFromEventTarget(event.target);
+	}
+
+	private getItemIndexFromGestureEvent(event: GestureEvent): number {
+		return this.getItemIndexFromEventTarget(event.initialTarget);
+	}
+
+	private getItemIndexFromEventTarget(target: EventTarget): number {
 		while (target instanceof HTMLElement && target !== this.rowsContainer) {
 			const element = target as HTMLElement;
 			const rawIndex = element.getAttribute('data-index');
@@ -275,6 +307,6 @@ export class ListView<T> implements IDisposable {
 			this._domNode = null;
 		}
 
-		this.toDispose = dispose(this.toDispose);
+		this.disposables = dispose(this.disposables);
 	}
 }

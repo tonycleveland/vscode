@@ -6,10 +6,10 @@
 
 import * as assert from 'assert';
 import uri from 'vs/base/common/uri';
-import {Match, FileMatch, SearchResult} from 'vs/workbench/parts/search/common/searchModel';
+import { Match, FileMatch, SearchResult } from 'vs/workbench/parts/search/common/searchModel';
 import { TestInstantiationService } from 'vs/test/utils/instantiationTestUtils';
-import {SearchSorter, SearchDataSource} from 'vs/workbench/parts/search/browser/searchResultsView';
-import {IFileMatch, ILineMatch} from 'vs/platform/search/common/search';
+import { SearchSorter, SearchDataSource } from 'vs/workbench/parts/search/browser/searchResultsView';
+import { IFileMatch, ILineMatch } from 'vs/platform/search/common/search';
 import { createMockModelService } from 'vs/test/utils/servicesTestUtils';
 import { IModelService } from 'vs/editor/common/services/modelService';
 
@@ -34,7 +34,7 @@ suite('Search - Viewlet', () => {
 
 		assert.equal(ds.getId(null, result), 'root');
 		assert.equal(ds.getId(null, fileMatch), 'file:///c%3A/foo');
-		assert.equal(ds.getId(null, lineMatch), 'file:///c%3A/foo>1>0');
+		assert.equal(ds.getId(null, lineMatch), 'file:///c%3A/foo>1>0b');
 
 		assert(!ds.hasChildren(null, 'foo'));
 		assert(ds.hasChildren(null, result));
@@ -63,7 +63,7 @@ suite('Search - Viewlet', () => {
 	});
 
 	function aFileMatch(path: string, searchResult?: SearchResult, ...lineMatches: ILineMatch[]): FileMatch {
-		let rawMatch: IFileMatch= {
+		let rawMatch: IFileMatch = {
 			resource: uri.file('C:\\' + path),
 			lineMatches: lineMatches
 		};

@@ -4,16 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {CommonEditorConfiguration} from 'vs/editor/common/config/commonEditorConfig';
-import {IEditorOptions, FontInfo, BareFontInfo} from 'vs/editor/common/editorCommon';
+import { CommonEditorConfiguration } from 'vs/editor/common/config/commonEditorConfig';
+import { IEditorOptions, FontInfo, BareFontInfo } from 'vs/editor/common/editorCommon';
 
 export class MockConfiguration extends CommonEditorConfiguration {
 
-	constructor(opts:IEditorOptions) {
+	constructor(opts: IEditorOptions) {
 		super(opts);
 	}
 
-	protected _getEditorClassName(theme:string, fontLigatures:boolean): string {
+	protected _getEditorClassName(theme: string, fontLigatures: boolean): string {
 		return '';
 	}
 
@@ -32,11 +32,12 @@ export class MockConfiguration extends CommonEditorConfiguration {
 	protected readConfiguration(styling: BareFontInfo): FontInfo {
 		return new FontInfo({
 			fontFamily: 'mockFont',
+			fontWeight: 'normal',
 			fontSize: 14,
 			lineHeight: 19,
-			typicalHalfwidthCharacterWidth:10,
-			typicalFullwidthCharacterWidth:20,
-			spaceWidth:10,
+			typicalHalfwidthCharacterWidth: 10,
+			typicalFullwidthCharacterWidth: 20,
+			spaceWidth: 10,
 			maxDigitWidth: 10,
 		});
 	}

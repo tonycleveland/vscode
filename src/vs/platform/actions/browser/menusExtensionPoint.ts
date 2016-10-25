@@ -4,16 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {createCSSRule} from 'vs/base/browser/dom';
-import {localize} from 'vs/nls';
-import {join} from 'vs/base/common/paths';
-import {IdGenerator} from 'vs/base/common/idGenerator';
-import {IJSONSchema} from 'vs/base/common/jsonSchema';
-import {forEach} from 'vs/base/common/collections';
-import {IExtensionPointUser, IExtensionMessageCollector, ExtensionsRegistry} from 'vs/platform/extensions/common/extensionsRegistry';
-import {MenuRegistry} from './menuService';
-import {KbExpr} from 'vs/platform/keybinding/common/keybinding';
-import {MenuId} from 'vs/platform/actions/common/actions';
+import { createCSSRule } from 'vs/base/browser/dom';
+import { localize } from 'vs/nls';
+import { isFalsyOrWhitespace } from 'vs/base/common/strings';
+import { join } from 'vs/base/common/paths';
+import { IdGenerator } from 'vs/base/common/idGenerator';
+import { IJSONSchema } from 'vs/base/common/jsonSchema';
+import { forEach } from 'vs/base/common/collections';
+import { IExtensionPointUser, IExtensionMessageCollector, ExtensionsRegistry } from 'vs/platform/extensions/common/extensionsRegistry';
+import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
+import { MenuId, MenuRegistry } from 'vs/platform/actions/common/actions';
 
 namespace schema {
 
@@ -31,6 +31,7 @@ namespace schema {
 			case 'editor/title': return MenuId.EditorTitle;
 			case 'editor/context': return MenuId.EditorContext;
 			case 'explorer/context': return MenuId.ExplorerContext;
+			case 'editor/title/context': return MenuId.EditorTitleContext;
 		}
 	}
 
@@ -98,6 +99,11 @@ namespace schema {
 				type: 'array',
 				items: menuItem
 			},
+			'editor/title/context': {
+				description: localize('menus.editorTabContext', "The editor tabs context menu"),
+				type: 'array',
+				items: menuItem
+			},
 			'explorer/context': {
 				description: localize('menus.explorerContext', "The file explorer context menu"),
 				type: 'array',
@@ -122,11 +128,11 @@ namespace schema {
 			collector.error(localize('nonempty', "expected non-empty value."));
 			return false;
 		}
-		if (typeof command.command !== 'string') {
+		if (isFalsyOrWhitespace(command.command)) {
 			collector.error(localize('requirestring', "property `{0}` is mandatory and must be of type `string`", 'command'));
 			return false;
 		}
-		if (typeof command.title !== 'string') {
+		if (isFalsyOrWhitespace(command.title)) {
 			collector.error(localize('requirestring', "property `{0}` is mandatory and must be of type `string`", 'title'));
 			return false;
 		}
@@ -206,7 +212,7 @@ ExtensionsRegistry.registerExtensionPoint<schema.IUserFriendlyCommand | schema.I
 
 	const ids = new IdGenerator('contrib-cmd-icon-');
 
-	function handleCommand(userFriendlyCommand: schema.IUserFriendlyCommand , extension: IExtensionPointUser<any>) {
+	function handleCommand(userFriendlyCommand: schema.IUserFriendlyCommand, extension: IExtensionPointUser<any>) {
 
 		if (!schema.isValidCommand(userFriendlyCommand, extension.collector)) {
 			return;
@@ -278,11 +284,24 @@ ExtensionsRegistry.registerExtensionPoint<{ [loc: string]: schema.IUserFriendlyM
 					collector.info(localize('nosupport.altCommand', "Sorry, but currently only the 'navigation' group of the 'editor/title' menu supports alt-commands"));
 				}
 
+				let group: string;
+				let order: number;
+				if (item.group) {
+					const idx = item.group.lastIndexOf('@');
+					if (idx > 0) {
+						group = item.group.substr(0, idx);
+						order = Number(item.group.substr(idx + 1)) || undefined;
+					} else {
+						group = item.group;
+					}
+				}
+
 				MenuRegistry.appendMenuItem(menu, {
 					command,
 					alt,
-					group: item.group || undefined,
-					when: KbExpr.deserialize(item.when)
+					group,
+					order,
+					when: ContextKeyExpr.deserialize(item.when)
 				});
 			}
 		});

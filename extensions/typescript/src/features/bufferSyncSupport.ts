@@ -4,14 +4,25 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
+import * as path from 'path';
+import * as fs from 'fs';
+
 import { workspace, TextDocument, TextDocumentChangeEvent, TextDocumentContentChangeEvent, Disposable } from 'vscode';
 import * as Proto from '../protocol';
 import { ITypescriptServiceClient } from '../typescriptService';
 import { Delayer } from '../utils/async';
+import LinkedMap from './linkedMap';
 
 interface IDiagnosticRequestor {
 	requestDiagnostic(filepath: string): void;
 }
+
+const Mode2ScriptKind: Map<'TS' | 'JS' | 'TSX' | 'JSX'> = {
+	'typescript': 'TS',
+	'typescriptreact': 'TSX',
+	'javascript': 'JS',
+	'javascriptreact': 'JSX'
+};
 
 class SyncedBuffer {
 
@@ -30,9 +41,24 @@ class SyncedBuffer {
 	public open(): void {
 		let args: Proto.OpenRequestArgs = {
 			file: this.filepath,
-			fileContent: this.document.getText()
+			fileContent: this.document.getText(),
 		};
+		if (this.client.apiVersion.has203Features()) {
+			// we have no extension. So check the mode and
+			// set the script kind accordningly.
+			const ext = path.extname(this.filepath);
+			if (ext === '') {
+				const scriptKind = Mode2ScriptKind[this.document.languageId];
+				if (scriptKind) {
+					args.scriptKindName = scriptKind;
+				}
+			}
+		}
 		this.client.execute('open', args, false);
+	}
+
+	public get lineCount(): number {
+		return this.document.lineCount;
 	}
 
 	public close(): void {
@@ -85,6 +111,7 @@ export default class BufferSyncSupport {
 
 	private pendingDiagnostics: { [key: string]: number; };
 	private diagnosticDelayer: Delayer<any>;
+	private emitQueue: LinkedMap<string>;
 
 	constructor(client: ITypescriptServiceClient, modeIds: string[], diagnostics: Diagnostics, extensions: Map<boolean>, validate: boolean = true) {
 		this.client = client;
@@ -97,15 +124,17 @@ export default class BufferSyncSupport {
 		this.projectValidationRequested = false;
 
 		this.pendingDiagnostics = Object.create(null);
-		this.diagnosticDelayer = new Delayer<any>(100);
+		this.diagnosticDelayer = new Delayer<any>(300);
 
 		this.syncedBuffers = Object.create(null);
+		this.emitQueue = new LinkedMap<string>();
 	}
 
 	public listen(): void {
 		workspace.onDidOpenTextDocument(this.onDidOpenTextDocument, this, this.disposables);
 		workspace.onDidCloseTextDocument(this.onDidCloseTextDocument, this, this.disposables);
 		workspace.onDidChangeTextDocument(this.onDidChangeTextDocument, this, this.disposables);
+		workspace.onDidSaveTextDocument(this.onDidSaveTextDocument, this, this.disposables);
 		workspace.textDocuments.forEach(this.onDidOpenTextDocument, this);
 	}
 
@@ -163,6 +192,9 @@ export default class BufferSyncSupport {
 		this.diagnostics.delete(filepath);
 		delete this.syncedBuffers[filepath];
 		syncedBuffer.close();
+		if (!fs.existsSync(filepath)) {
+			this.requestAllDiagnostics();
+		}
 	}
 
 	private onDidChangeTextDocument(e: TextDocumentChangeEvent): void {
@@ -177,6 +209,17 @@ export default class BufferSyncSupport {
 		syncedBuffer.onContentChanged(e.contentChanges);
 	}
 
+	private onDidSaveTextDocument(document: TextDocument): void {
+		let filepath: string = this.client.asAbsolutePath(document.uri);
+		if (!filepath) {
+			return;
+		}
+		let syncedBuffer = this.syncedBuffers[filepath];
+		if (!syncedBuffer) {
+			return;
+		}
+	}
+
 	public requestAllDiagnostics() {
 		if (!this._validate) {
 			return;
@@ -184,7 +227,7 @@ export default class BufferSyncSupport {
 		Object.keys(this.syncedBuffers).forEach(filePath => this.pendingDiagnostics[filePath] = Date.now());
 		this.diagnosticDelayer.trigger(() => {
 			this.sendPendingDiagnostics();
-		});
+		}, 200);
 	}
 
 	public requestDiagnostic(file: string): void {
@@ -193,9 +236,15 @@ export default class BufferSyncSupport {
 		}
 
 		this.pendingDiagnostics[file] = Date.now();
+		let buffer = this.syncedBuffers[file];
+		let delay = 300;
+		if (buffer) {
+			let lineCount = buffer.lineCount;
+			delay = Math.min(Math.max(Math.ceil(lineCount / 20), 300), 800);
+		}
 		this.diagnosticDelayer.trigger(() => {
 			this.sendPendingDiagnostics();
-		});
+		}, delay);
 	}
 
 	private sendPendingDiagnostics(): void {

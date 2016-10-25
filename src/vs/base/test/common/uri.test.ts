@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import URI from 'vs/base/common/uri';
-import {normalize} from 'vs/base/common/paths';
+import { normalize } from 'vs/base/common/paths';
 
 suite('URI', () => {
 	test('file#toString', () => {
@@ -26,6 +26,13 @@ suite('URI', () => {
 		assert.equal(URI.file('./c/win/path').fsPath.replace(/\\/g, '/'), '/./c/win/path');
 		assert.equal(URI.file('c:\\win\\path').fsPath.replace(/\\/g, '/'), 'c:/win/path');
 		assert.equal(URI.file('c:\\win/path').fsPath.replace(/\\/g, '/'), 'c:/win/path');
+	});
+
+	test('URI#fsPath - no `fsPath` when no `path`', () => {
+		const value = URI.parse('file://%2Fhome%2Fticino%2Fdesktop%2Fcpluscplus%2Ftest.cpp');
+		assert.equal(value.authority, '/home/ticino/desktop/cpluscplus/test.cpp');
+		assert.equal(value.path, '');
+		assert.equal(value.fsPath, '');
 	});
 
 	test('http#toString', () => {
@@ -92,6 +99,14 @@ suite('URI', () => {
 		assert.equal(URI.parse('scheme:/path').with({ authority: 'authority' }).with({ path: null }).toString(), 'scheme://authority');
 		assert.equal(URI.parse('scheme:/path').with({ authority: '' }).toString(), 'scheme:/path');
 		assert.equal(URI.parse('scheme:/path').with({ authority: null }).toString(), 'scheme:/path');
+	});
+
+	test('with, validation', () => {
+		let uri = URI.parse('foo:bar/path');
+		assert.throws(() => uri.with({ scheme: 'fai:l' }));
+		assert.throws(() => uri.with({ scheme: 'fäil' }));
+		assert.throws(() => uri.with({ authority: 'fail' }));
+		assert.throws(() => uri.with({ path: '//fail' }));
 	});
 
 	test('parse', () => {
@@ -195,6 +210,34 @@ suite('URI', () => {
 		assert.equal(value.path, '');
 		assert.equal(value.query, '');
 		assert.equal(value.fragment, 'd');
+
+		value = URI.parse('f3ile:#d');
+		assert.equal(value.scheme, 'f3ile');
+		assert.equal(value.authority, '');
+		assert.equal(value.path, '');
+		assert.equal(value.query, '');
+		assert.equal(value.fragment, 'd');
+
+		value = URI.parse('foo+bar:path');
+		assert.equal(value.scheme, 'foo+bar');
+		assert.equal(value.authority, '');
+		assert.equal(value.path, 'path');
+		assert.equal(value.query, '');
+		assert.equal(value.fragment, '');
+
+		value = URI.parse('foo-bar:path');
+		assert.equal(value.scheme, 'foo-bar');
+		assert.equal(value.authority, '');
+		assert.equal(value.path, 'path');
+		assert.equal(value.query, '');
+		assert.equal(value.fragment, '');
+
+		value = URI.parse('foo.bar:path');
+		assert.equal(value.scheme, 'foo.bar');
+		assert.equal(value.authority, '');
+		assert.equal(value.path, 'path');
+		assert.equal(value.query, '');
+		assert.equal(value.fragment, '');
 	});
 
 	test('parse, disallow //path when no authority', () => {
@@ -289,6 +332,11 @@ suite('URI', () => {
 		assert.equal(value.toString(), 'file://sh%C3%A4res/path');
 	});
 
+	test('URI#toString, lower-case windows drive letter', () => {
+		assert.equal(URI.parse('untitled:c:/Users/jrieken/Code/abc.txt').toString(), 'untitled:c%3A/Users/jrieken/Code/abc.txt');
+		assert.equal(URI.parse('untitled:C:/Users/jrieken/Code/abc.txt').toString(), 'untitled:c%3A/Users/jrieken/Code/abc.txt');
+	});
+
 	test('URI#toString, escape all the bits', () => {
 
 		var value = URI.file('/Users/jrieken/Code/_samples/18500/Mödel + Other Thîngß/model.js');
@@ -320,7 +368,7 @@ suite('URI', () => {
 		test('file://monacotools1/certificates/SSL/', '\\\\monacotools1\\certificates\\SSL\\');
 	});
 
-	test('URI - http, query & toString', function() {
+	test('URI - http, query & toString', function () {
 
 		let uri = URI.parse('https://go.microsoft.com/fwlink/?LinkId=518008');
 		assert.equal(uri.query, 'LinkId=518008');
@@ -356,7 +404,7 @@ suite('URI', () => {
 		// console.profile();
 		// let c = 100000;
 		// while (c-- > 0) {
-		for(let value of values) {
+		for (let value of values) {
 			let data = value.toJSON();
 			let clone = URI.revive(data);
 

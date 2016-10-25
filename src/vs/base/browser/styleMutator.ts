@@ -17,6 +17,7 @@ export abstract class FastDomNode {
 	private _bottom: number;
 	private _right: number;
 	private _fontFamily: string;
+	private _fontWeight: string;
 	private _fontSize: number;
 	private _lineHeight: number;
 	private _className: string;
@@ -40,6 +41,7 @@ export abstract class FastDomNode {
 		this._bottom = -1;
 		this._right = -1;
 		this._fontFamily = '';
+		this._fontWeight = '';
 		this._fontSize = -1;
 		this._lineHeight = -1;
 		this._className = '';
@@ -114,6 +116,14 @@ export abstract class FastDomNode {
 		this._domNode.style.fontFamily = this._fontFamily;
 	}
 
+	public setFontWeight(fontWeight: string): void {
+		if (this._fontWeight === fontWeight) {
+			return;
+		}
+		this._fontWeight = fontWeight;
+		this._domNode.style.fontWeight = this._fontWeight;
+	}
+
 	public setFontSize(fontSize: number): void {
 		if (this._fontSize === fontSize) {
 			return;
@@ -167,7 +177,7 @@ export abstract class FastDomNode {
 		this._domNode.style.visibility = this._visibility;
 	}
 
-	public setTransform(transform:string): void {
+	public setTransform(transform: string): void {
 		if (this._transform === transform) {
 			return;
 		}
@@ -175,9 +185,9 @@ export abstract class FastDomNode {
 		this._setTransform(this._domNode, this._transform);
 	}
 
-	protected abstract _setTransform(domNode:HTMLElement, transform:string): void;
+	protected abstract _setTransform(domNode: HTMLElement, transform: string): void;
 
-	public setLineNumber(lineNumber:string): void {
+	public setLineNumber(lineNumber: string): void {
 		if (this._lineNumber === lineNumber) {
 			return;
 		}
@@ -187,19 +197,19 @@ export abstract class FastDomNode {
 }
 
 class WebKitFastDomNode extends FastDomNode {
-	protected _setTransform(domNode:HTMLElement, transform:string): void {
+	protected _setTransform(domNode: HTMLElement, transform: string): void {
 		(<any>domNode.style).webkitTransform = transform;
 	}
 }
 
 class StandardFastDomNode extends FastDomNode {
-	protected _setTransform(domNode:HTMLElement, transform:string): void {
+	protected _setTransform(domNode: HTMLElement, transform: string): void {
 		domNode.style.transform = transform;
 	}
 }
 
 let useWebKitFastDomNode = false;
-(function() {
+(function () {
 	let testDomNode = document.createElement('div');
 	if (typeof (<any>testDomNode.style).webkitTransform !== 'undefined') {
 		useWebKitFastDomNode = true;
@@ -302,7 +312,7 @@ function setTransform(domNode: HTMLElement, desiredValue: string): boolean {
 	}
 	return false;
 }
-(function() {
+(function () {
 	let testDomNode = document.createElement('div');
 	if (typeof (<any>testDomNode.style).webkitTransform !== 'undefined') {
 		StyleMutator.setTransform = setWebkitTransform;

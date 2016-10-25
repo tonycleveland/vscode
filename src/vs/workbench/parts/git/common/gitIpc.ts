@@ -8,10 +8,12 @@
 import { TPromise } from 'vs/base/common/winjs.base';
 import { IChannel, eventToCall, eventFromCall } from 'vs/base/parts/ipc/common/ipc';
 import Event from 'vs/base/common/event';
-import { IRawGitService, RawServiceState, IRawStatus, IPushOptions, IAskpassService, ICredentials,
-	ServiceState, IRawFileStatus, IBranch, RefType, IRef, IRemote } from './git';
+import {
+	IRawGitService, RawServiceState, IRawStatus, IPushOptions, IAskpassService, ICredentials,
+	ServiceState, IRawFileStatus, IBranch, RefType, IRef, IRemote, ICommit
+} from './git';
 
-type ISerializer<A,B> = { to(a: A): B; from(b: B): A; };
+type ISerializer<A, B> = { to(a: A): B; from(b: B): A; };
 
 export type IPCRawFileStatus = [string, string, string, string, string];
 const RawFileStatusSerializer: ISerializer<IRawFileStatus, IPCRawFileStatus> = {
@@ -83,19 +85,20 @@ export interface IGitChannel extends IChannel {
 	call(command: 'pull', rebase?: boolean): TPromise<IPCRawStatus>;
 	call(command: 'push', args: [string, string, IPushOptions]): TPromise<IPCRawStatus>;
 	call(command: 'sync'): TPromise<IPCRawStatus>;
-	call(command: 'commit', args: [string, boolean, boolean]): TPromise<IPCRawStatus>;
+	call(command: 'commit', args: [string, boolean, boolean, boolean]): TPromise<IPCRawStatus>;
 	call(command: 'detectMimetypes', args: [string, string]): TPromise<string[]>;
 	call(command: 'show', args: [string, string]): TPromise<string>;
 	call(command: 'onOutput'): TPromise<void>;
 	call(command: 'getCommitTemplate'): TPromise<string>;
-	call(command: string, args: any): TPromise<any>;
+	call(command: 'getCommit', ref: string): TPromise<ICommit>;
+	call(command: string, args?: any): TPromise<any>;
 }
 
 export class GitChannel implements IGitChannel {
 
 	constructor(private service: TPromise<IRawGitService>) { }
 
-	call(command: string, args: any): TPromise<any> {
+	call(command: string, args?: any): TPromise<any> {
 		switch (command) {
 			case 'getVersion': return this.service.then(s => s.getVersion());
 			case 'serviceState': return this.service.then(s => s.serviceState());
@@ -114,11 +117,12 @@ export class GitChannel implements IGitChannel {
 			case 'pull': return this.service.then(s => s.pull(args)).then(RawStatusSerializer.to);
 			case 'push': return this.service.then(s => s.push(args[0], args[1], args[2])).then(RawStatusSerializer.to);
 			case 'sync': return this.service.then(s => s.sync()).then(RawStatusSerializer.to);
-			case 'commit': return this.service.then(s => s.commit(args[0], args[1], args[2])).then(RawStatusSerializer.to);
+			case 'commit': return this.service.then(s => s.commit(args[0], args[1], args[2], args[3])).then(RawStatusSerializer.to);
 			case 'detectMimetypes': return this.service.then(s => s.detectMimetypes(args[0], args[1]));
 			case 'show': return this.service.then(s => s.show(args[0], args[1]));
 			case 'onOutput': return this.service.then(s => eventToCall(s.onOutput));
 			case 'getCommitTemplate': return this.service.then(s => s.getCommitTemplate());
+			case 'getCommit': return this.service.then(s => s.getCommit(args));
 		}
 	}
 }
@@ -184,11 +188,11 @@ export class GitChannelClient implements IRawGitService {
 		return this.channel.call('undo').then(RawStatusSerializer.from);
 	}
 
-	reset(treeish:string, hard?: boolean): TPromise<IRawStatus> {
+	reset(treeish: string, hard?: boolean): TPromise<IRawStatus> {
 		return this.channel.call('reset', [treeish, hard]).then(RawStatusSerializer.from);
 	}
 
-	revertFiles(treeish:string, filePaths?: string[]): TPromise<IRawStatus> {
+	revertFiles(treeish: string, filePaths?: string[]): TPromise<IRawStatus> {
 		return this.channel.call('revertFiles', [treeish, filePaths]).then(RawStatusSerializer.from);
 	}
 
@@ -200,7 +204,7 @@ export class GitChannelClient implements IRawGitService {
 		return this.channel.call('pull', rebase).then(RawStatusSerializer.from);
 	}
 
-	push(remote?: string, name?: string, options?:IPushOptions): TPromise<IRawStatus> {
+	push(remote?: string, name?: string, options?: IPushOptions): TPromise<IRawStatus> {
 		return this.channel.call('push', [remote, name, options]).then(RawStatusSerializer.from);
 	}
 
@@ -208,8 +212,8 @@ export class GitChannelClient implements IRawGitService {
 		return this.channel.call('sync').then(RawStatusSerializer.from);
 	}
 
-	commit(message:string, amend?: boolean, stage?: boolean): TPromise<IRawStatus> {
-		return this.channel.call('commit', [message, amend, stage]).then(RawStatusSerializer.from);
+	commit(message: string, amend?: boolean, stage?: boolean, signoff?: boolean): TPromise<IRawStatus> {
+		return this.channel.call('commit', [message, amend, stage, signoff]).then(RawStatusSerializer.from);
 	}
 
 	detectMimetypes(path: string, treeish?: string): TPromise<string[]> {
@@ -223,18 +227,22 @@ export class GitChannelClient implements IRawGitService {
 	getCommitTemplate(): TPromise<string> {
 		return this.channel.call('getCommitTemplate');
 	}
+
+	getCommit(ref: string): TPromise<ICommit> {
+		return this.channel.call('getCommit', ref);
+	}
 }
 
 export interface IAskpassChannel extends IChannel {
-	call(command: 'askpass', id: string, host: string, gitCommand: string): TPromise<ICredentials>;
-	call(command: string, ...args: any[]): TPromise<any>;
+	call(command: 'askpass', args: [string, string, string]): TPromise<ICredentials>;
+	call(command: string, args: any[]): TPromise<any>;
 }
 
 export class AskpassChannel implements IAskpassChannel {
 
 	constructor(private service: IAskpassService) { }
 
-	call(command: string, ...args: any[]): TPromise<any> {
+	call(command: string, args: [string, string, string]): TPromise<any> {
 		switch (command) {
 			case 'askpass': return this.service.askpass(args[0], args[1], args[2]);
 		}
@@ -246,6 +254,6 @@ export class AskpassChannelClient implements IAskpassService {
 	constructor(private channel: IAskpassChannel) { }
 
 	askpass(id: string, host: string, command: string): TPromise<ICredentials> {
-		return this.channel.call('askpass', id, host, command);
+		return this.channel.call('askpass', [id, host, command]);
 	}
 }

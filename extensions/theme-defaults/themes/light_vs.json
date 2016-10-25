@@ -99,14 +99,14 @@
 		{
 			"scope": "markup.heading",
 			"settings": {
+				"fontStyle": "bold",
 				"foreground": "#800000"
 			}
 		},
 		{
 			"scope": "markup.italic",
 			"settings": {
-				"fontStyle": "italic",
-				"foreground": "#000080"
+				"fontStyle": "italic"
 			}
 		},
 		{
@@ -128,15 +128,9 @@
 			}
 		},
 		{
-			"scope": ["markup.punctuation.quote", "markup.punctuation.list"],
+			"scope": ["markup.punctuation.quote.beginning", "markup.punctuation.list.beginning"],
 			"settings": {
 				"foreground": "#0451a5"
-			}
-		},
-		{
-			"scope": ["markup.quote", "markup.list"],
-			"settings": {
-				"foreground": "#000000"
 			}
 		},
 		{
@@ -254,7 +248,7 @@
 			}
 		},
 		{
-			"scope": "keyword.operator.new",
+			"scope": ["keyword.operator.new", "keyword.operator.expression"],
 			"settings": {
 				"foreground": "#0000ff"
 			}
@@ -294,6 +288,13 @@
 			"scope": ["storage.modifier.import.java", "storage.modifier.package.java"],
 			"settings": {
 				"foreground": "#000000"
+			}
+		},
+		{
+			"name": "this.self",
+			"scope": "variable.language",
+			"settings": {
+				"foreground": "#0000ff"
 			}
 		}
 	]

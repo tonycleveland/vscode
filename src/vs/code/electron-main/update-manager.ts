@@ -8,14 +8,14 @@
 import * as fs from 'original-fs';
 import * as path from 'path';
 import * as electron from 'electron';
-import * as platform from 'vs/base/common/platform';
 import { EventEmitter } from 'events';
-import { IEnvironmentService, getPlatformIdentifier } from 'vs/code/electron-main/env';
-import { ISettingsService } from 'vs/code/electron-main/settings';
+import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
 import { Win32AutoUpdaterImpl } from 'vs/code/electron-main/auto-updater.win32';
 import { LinuxAutoUpdaterImpl } from 'vs/code/electron-main/auto-updater.linux';
 import { ILifecycleService } from 'vs/code/electron-main/lifecycle';
 import { createDecorator, IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
+import { IRequestService } from 'vs/platform/request/common/request';
+import product from 'vs/platform/product';
 
 export enum State {
 	Uninitialized,
@@ -71,8 +71,8 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 	constructor(
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ILifecycleService private lifecycleService: ILifecycleService,
-		@IEnvironmentService private envService: IEnvironmentService,
-		@ISettingsService private settingsService: ISettingsService
+		@IConfigurationService private configurationService: IConfigurationService,
+		@IRequestService requestService: IRequestService
 	) {
 		super();
 
@@ -83,11 +83,11 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 		this._feedUrl = null;
 		this._channel = null;
 
-		if (platform.isWindows) {
+		if (process.platform === 'win32') {
 			this.raw = instantiationService.createInstance(Win32AutoUpdaterImpl);
-		} else if (platform.isLinux) {
+		} else if (process.platform === 'linux') {
 			this.raw = instantiationService.createInstance(LinuxAutoUpdaterImpl);
-		} else if (platform.isMacintosh) {
+		} else if (process.platform === 'darwin') {
 			this.raw = electron.autoUpdater;
 		}
 
@@ -107,8 +107,8 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 			this.setState(State.CheckingForUpdate);
 		});
 
-		this.raw.on('update-available', (event, url: string) => {
-			this.emit('update-available', url);
+		this.raw.on('update-available', (event, url: string, version: string) => {
+			this.emit('update-available', url, version);
 
 			let data: IUpdate = null;
 
@@ -130,7 +130,7 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 		});
 
 		this.raw.on('update-downloaded', (event: any, releaseNotes: string, version: string, date: Date, url: string, rawQuitAndUpdate: () => void) => {
-			let data: IUpdate = {
+			const data: IUpdate = {
 				releaseNotes: releaseNotes,
 				version: version,
 				date: date,
@@ -151,7 +151,7 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 			// for some reason updating on Mac causes the local storage not to be flushed.
 			// we workaround this issue by forcing an explicit flush of the storage data.
 			// see also https://github.com/Microsoft/vscode/issues/172
-			if (platform.isMacintosh) {
+			if (process.platform === 'darwin') {
 				electron.session.defaultSession.flushStorageData();
 			}
 
@@ -230,8 +230,10 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 	}
 
 	private getUpdateChannel(): string {
-		const channel = this.settingsService.getValue<string>('update.channel') || 'default';
-		return channel === 'none' ? null : this.envService.quality;
+		const config = this.configurationService.getConfiguration<{ channel: string; }>('update');
+		const channel = config && config.channel;
+
+		return channel === 'none' ? null : product.quality;
 	}
 
 	private getUpdateFeedUrl(channel: string): string {
@@ -239,14 +241,16 @@ export class UpdateManager extends EventEmitter implements IUpdateService {
 			return null;
 		}
 
-		if (platform.isWindows && !fs.existsSync(path.join(path.dirname(process.execPath), 'unins000.exe'))) {
+		if (process.platform === 'win32' && !fs.existsSync(path.join(path.dirname(process.execPath), 'unins000.exe'))) {
 			return null;
 		}
 
-		if (!this.envService.updateUrl || !this.envService.product.commit) {
+		if (!product.updateUrl || !product.commit) {
 			return null;
 		}
 
-		return `${this.envService.updateUrl}/api/update/${getPlatformIdentifier()}/${channel}/${this.envService.product.commit}`;
+		const platform = process.platform === 'linux' ? `linux-${process.arch}` : process.platform;
+
+		return `${product.updateUrl}/api/update/${platform}/${channel}/${product.commit}`;
 	}
 }

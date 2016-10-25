@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/* Title decoration */
+/* Title Container */
 
 .vs .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.tabs {
 	background: #F3F3F3;
@@ -22,10 +22,6 @@
 	z-index: 1; /* on top of tabs */
 }
 
-.monaco-workbench > .part.editor > .content.drag > .one-editor-silo > .container > .title.tabs::before {
-	z-index: auto;
-}
-
 .vs .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.tabs::before {
 	border-top: 1px solid #DDDDDD;
 }
@@ -34,12 +30,17 @@
 	border-top: 1px solid #403F3F;
 }
 
+.hc-black .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.tabs::before {
+	border-top: 1px solid #6FC3DF;
+}
+
 .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.tabs > .monaco-scrollable-element {
 	flex: 1;
 }
 
 .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title.tabs > .monaco-scrollable-element .scrollbar {
 	z-index: 3; /* on top of tabs */
+	cursor: default;
 }
 
 /* Tabs Container */
@@ -76,7 +77,7 @@
 	z-index: 2; /* on top of the horizontal border of the title */
 }
 
-.monaco-workbench > .part.editor > .content.drag > .one-editor-silo > .container > .title .tabs-container > .tab.active {
+.monaco-workbench > .part.editor > .content > .one-editor-silo.dragged-over > .container > .title .tabs-container > .tab.active {
 	z-index: auto;
 }
 
@@ -109,8 +110,13 @@
 	border-left-color: transparent;
 }
 
+.hc-black .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container > .tab  {
+	border-left-color: #6FC3DF;
+}
+
 .hc-black .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container > .tab.active  {
-	border: 1px solid #f38518;
+	outline: 2px solid #f38518;
+	outline-offset: -1px;
 }
 
 .vs .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container.dropfeedback,
@@ -135,6 +141,10 @@
 .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container > .tab .tab-label {
 	margin-top: auto;
 	margin-bottom: auto;
+}
+
+.monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container > .tab .monaco-icon-label::before {
+	height: 16px; /* tweak the icon size of the editor labels when icons are enabled */
 }
 
 .vs .monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .tabs-container > .tab .tab-label {
@@ -208,9 +218,9 @@
 	background: url('close-inverse.svg') center center no-repeat;
 }
 
-/* Group Actions */
+/* Editor Actions */
 
-.monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .group-actions {
+.monaco-workbench > .part.editor > .content > .one-editor-silo > .container > .title .editor-actions {
 	flex: initial;
 	padding-left: 4px;
 }

@@ -5,12 +5,14 @@
 'use strict';
 
 import URI from 'vs/base/common/uri';
-import {IThreadService} from 'vs/workbench/services/thread/common/threadService';
-import {IResourceEdit} from 'vs/editor/common/services/bulkEdit';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {fromRange} from 'vs/workbench/api/node/extHostTypeConverters';
-import {Uri, CancellationToken} from 'vscode';
-import {MainContext, MainThreadWorkspaceShape} from './extHost.protocol';
+import { relative, isEqualOrParent } from 'vs/base/common/paths';
+import { IThreadService } from 'vs/workbench/services/thread/common/threadService';
+import { IResourceEdit } from 'vs/editor/common/services/bulkEdit';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { fromRange } from 'vs/workbench/api/node/extHostTypeConverters';
+import { Uri, CancellationToken } from 'vscode';
+import { MainContext, MainThreadWorkspaceShape } from './extHost.protocol';
+import * as vscode from 'vscode';
 
 export class ExtHostWorkspace {
 
@@ -19,7 +21,7 @@ export class ExtHostWorkspace {
 	private _proxy: MainThreadWorkspaceShape;
 	private _workspacePath: string;
 
-	constructor(threadService: IThreadService, workspacePath:string) {
+	constructor(threadService: IThreadService, workspacePath: string) {
 		this._proxy = threadService.get(MainContext.MainThreadWorkspace);
 		this._workspacePath = workspacePath;
 	}
@@ -28,7 +30,7 @@ export class ExtHostWorkspace {
 		return this._workspacePath;
 	}
 
-	getRelativePath(pathOrUri: string|Uri): string {
+	getRelativePath(pathOrUri: string | Uri): string {
 
 		let path: string;
 		if (typeof pathOrUri === 'string') {
@@ -37,9 +39,8 @@ export class ExtHostWorkspace {
 			path = pathOrUri.fsPath;
 		}
 
-		if (this._workspacePath && this._workspacePath.length < path.length) {
-			// return relative(workspacePath, path);
-			return path.substring(this._workspacePath.length);
+		if (isEqualOrParent(path, this._workspacePath)) {
+			return relative(this._workspacePath, path) || path;
 		}
 
 		return path;

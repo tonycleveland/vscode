@@ -5,29 +5,31 @@
 'use strict';
 
 import EditorCommon = require('vs/editor/common/editorCommon');
-import Event, {Emitter} from 'vs/base/common/event';
-import {IEditor} from 'vs/platform/editor/common/editor';
-import {ICodeEditorService} from 'vs/editor/common/services/codeEditorService';
-import {IModelService} from 'vs/editor/common/services/modelService';
-import {IDisposable, dispose} from 'vs/base/common/lifecycle';
-import {RunOnceScheduler} from 'vs/base/common/async';
-import {IdGenerator} from 'vs/base/common/idGenerator';
-import {Range} from 'vs/editor/common/core/range';
-import {Selection} from 'vs/editor/common/core/selection';
-import {EndOfLine} from 'vs/workbench/api/node/extHostTypes';
+import Event, { Emitter } from 'vs/base/common/event';
+import { IEditor } from 'vs/platform/editor/common/editor';
+import { ICodeEditorService } from 'vs/editor/common/services/codeEditorService';
+import { IModelService } from 'vs/editor/common/services/modelService';
+import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { RunOnceScheduler } from 'vs/base/common/async';
+import { IdGenerator } from 'vs/base/common/idGenerator';
+import { Range } from 'vs/editor/common/core/range';
+import { Selection } from 'vs/editor/common/core/selection';
+import { EndOfLine, TextEditorLineNumbersStyle } from 'vs/workbench/api/node/extHostTypes';
 
 export interface ITextEditorConfigurationUpdate {
 	tabSize?: number | string;
 	insertSpaces?: boolean | string;
 	cursorStyle?: EditorCommon.TextEditorCursorStyle;
+	lineNumbers?: TextEditorLineNumbersStyle;
 }
 export interface IResolvedTextEditorConfiguration {
 	tabSize: number;
 	insertSpaces: boolean;
 	cursorStyle: EditorCommon.TextEditorCursorStyle;
+	lineNumbers: TextEditorLineNumbersStyle;
 }
 
-function configurationsEqual(a:IResolvedTextEditorConfiguration, b:IResolvedTextEditorConfiguration) {
+function configurationsEqual(a: IResolvedTextEditorConfiguration, b: IResolvedTextEditorConfiguration) {
 	if (a && !b || !a && b) {
 		return false;
 	}
@@ -40,6 +42,11 @@ function configurationsEqual(a:IResolvedTextEditorConfiguration, b:IResolvedText
 	);
 }
 
+export interface ISelectionChangeEvent {
+	selections: Selection[];
+	source?: string;
+}
+
 export interface IFocusTracker {
 	onGainedFocus(): void;
 	onLostFocus(): void;
@@ -49,6 +56,12 @@ export enum TextEditorRevealType {
 	Default = 0,
 	InCenter = 1,
 	InCenterIfOutsideViewport = 2
+}
+
+export interface IApplyEditsOptions {
+	undoStopBefore: boolean;
+	undoStopAfter: boolean;
+	setEndOfLine: EndOfLine;
 }
 
 /**
@@ -68,14 +81,14 @@ export class MainThreadTextEditor {
 	private _lastSelection: Selection[];
 	private _configuration: IResolvedTextEditorConfiguration;
 
-	private _onSelectionChanged: Emitter<Selection[]>;
+	private _onSelectionChanged: Emitter<ISelectionChangeEvent>;
 	private _onConfigurationChanged: Emitter<IResolvedTextEditorConfiguration>;
 
 	constructor(
 		id: string,
-		model:EditorCommon.IModel,
-		codeEditor:EditorCommon.ICommonCodeEditor,
-		focusTracker:IFocusTracker,
+		model: EditorCommon.IModel,
+		codeEditor: EditorCommon.ICommonCodeEditor,
+		focusTracker: IFocusTracker,
 		modelService: IModelService
 	) {
 		this._id = id;
@@ -85,17 +98,17 @@ export class MainThreadTextEditor {
 		this._modelService = modelService;
 		this._codeEditorListeners = [];
 
-		this._onSelectionChanged = new Emitter<Selection[]>();
+		this._onSelectionChanged = new Emitter<ISelectionChangeEvent>();
 		this._onConfigurationChanged = new Emitter<IResolvedTextEditorConfiguration>();
 
-		this._lastSelection = [ new Selection(1,1,1,1) ];
-		this._setConfiguration(this._readConfiguration(this._model, this._codeEditor));
+		this._lastSelection = [new Selection(1, 1, 1, 1)];
 		this._modelListeners = [];
 		this._modelListeners.push(this._model.onDidChangeOptions((e) => {
 			this._setConfiguration(this._readConfiguration(this._model, this._codeEditor));
 		}));
 
 		this.setCodeEditor(codeEditor);
+		this._setConfiguration(this._readConfiguration(this._model, this._codeEditor));
 	}
 
 	public dispose(): void {
@@ -113,11 +126,11 @@ export class MainThreadTextEditor {
 		return this._model;
 	}
 
-	public hasCodeEditor(codeEditor:EditorCommon.ICommonCodeEditor): boolean {
+	public hasCodeEditor(codeEditor: EditorCommon.ICommonCodeEditor): boolean {
 		return (this._codeEditor === codeEditor);
 	}
 
-	public setCodeEditor(codeEditor:EditorCommon.ICommonCodeEditor): void {
+	public setCodeEditor(codeEditor: EditorCommon.ICommonCodeEditor): void {
 		if (this.hasCodeEditor(codeEditor)) {
 			// Nothing to do...
 			return;
@@ -132,9 +145,12 @@ export class MainThreadTextEditor {
 				this.setCodeEditor(null);
 			}));
 
-			let forwardSelection = () => {
+			let forwardSelection = (event?: EditorCommon.ICursorSelectionChangedEvent) => {
 				this._lastSelection = this._codeEditor.getSelections();
-				this._onSelectionChanged.fire(this._lastSelection);
+				this._onSelectionChanged.fire({
+					selections: this._lastSelection,
+					source: event && event.source
+				});
 			};
 			this._codeEditorListeners.push(this._codeEditor.onDidChangeCursorSelection(forwardSelection));
 			if (!Selection.selectionsArrEqual(this._lastSelection, this._codeEditor.getSelections())) {
@@ -157,7 +173,7 @@ export class MainThreadTextEditor {
 		return !!this._codeEditor;
 	}
 
-	public get onSelectionChanged(): Event<Selection[]> {
+	public get onSelectionChanged(): Event<ISelectionChangeEvent> {
 		return this._onSelectionChanged.event;
 	}
 
@@ -172,7 +188,7 @@ export class MainThreadTextEditor {
 		return this._lastSelection;
 	}
 
-	public setSelections(selections:EditorCommon.ISelection[]): void {
+	public setSelections(selections: EditorCommon.ISelection[]): void {
 		if (this._codeEditor) {
 			this._codeEditor.setSelections(selections);
 			return;
@@ -185,7 +201,7 @@ export class MainThreadTextEditor {
 		return this._configuration;
 	}
 
-	private _setIndentConfiguration(newConfiguration:ITextEditorConfigurationUpdate): void {
+	private _setIndentConfiguration(newConfiguration: ITextEditorConfigurationUpdate): void {
 		if (newConfiguration.tabSize === 'auto' || newConfiguration.insertSpaces === 'auto') {
 			// one of the options was set to 'auto' => detect indentation
 
@@ -224,7 +240,7 @@ export class MainThreadTextEditor {
 		this._model.updateOptions(newOpts);
 	}
 
-	public setConfiguration(newConfiguration:ITextEditorConfigurationUpdate): void {
+	public setConfiguration(newConfiguration: ITextEditorConfigurationUpdate): void {
 		this._setIndentConfiguration(newConfiguration);
 
 		if (newConfiguration.cursorStyle) {
@@ -239,9 +255,32 @@ export class MainThreadTextEditor {
 				cursorStyle: newCursorStyle
 			});
 		}
+
+		if (typeof newConfiguration.lineNumbers !== 'undefined') {
+
+			if (!this._codeEditor) {
+				console.warn('setConfiguration on invisible editor');
+				return;
+			}
+
+			let lineNumbers: 'on' | 'off' | 'relative';
+			switch (newConfiguration.lineNumbers) {
+				case TextEditorLineNumbersStyle.On:
+					lineNumbers = 'on';
+					break;
+				case TextEditorLineNumbersStyle.Relative:
+					lineNumbers = 'relative';
+					break;
+				default:
+					lineNumbers = 'off';
+			}
+			this._codeEditor.updateOptions({
+				lineNumbers: lineNumbers
+			});
+		}
 	}
 
-	public setDecorations(key: string, ranges:EditorCommon.IDecorationOptions[]): void {
+	public setDecorations(key: string, ranges: EditorCommon.IDecorationOptions[]): void {
 		if (!this._codeEditor) {
 			console.warn('setDecorations on invisible editor');
 			return;
@@ -249,7 +288,7 @@ export class MainThreadTextEditor {
 		this._codeEditor.setDecorations(key, ranges);
 	}
 
-	public revealRange(range:EditorCommon.IRange, revealType:TextEditorRevealType): void {
+	public revealRange(range: EditorCommon.IRange, revealType: TextEditorRevealType): void {
 		if (!this._codeEditor) {
 			console.warn('revealRange on invisible editor');
 			return;
@@ -265,26 +304,36 @@ export class MainThreadTextEditor {
 		}
 	}
 
-	private _readConfiguration(model:EditorCommon.IModel, codeEditor:EditorCommon.ICommonCodeEditor): IResolvedTextEditorConfiguration {
+	private _readConfiguration(model: EditorCommon.IModel, codeEditor: EditorCommon.ICommonCodeEditor): IResolvedTextEditorConfiguration {
 		if (model.isDisposed()) {
 			// shutdown time
 			return this._configuration;
 		}
 		let cursorStyle = this._configuration ? this._configuration.cursorStyle : EditorCommon.TextEditorCursorStyle.Line;
+		let lineNumbers: TextEditorLineNumbersStyle = this._configuration ? this._configuration.lineNumbers : TextEditorLineNumbersStyle.On;
 		if (codeEditor) {
 			let codeEditorOpts = codeEditor.getConfiguration();
 			cursorStyle = codeEditorOpts.viewInfo.cursorStyle;
+
+			if (codeEditorOpts.viewInfo.renderRelativeLineNumbers) {
+				lineNumbers = TextEditorLineNumbersStyle.Relative;
+			} else if (codeEditorOpts.viewInfo.renderLineNumbers) {
+				lineNumbers = TextEditorLineNumbersStyle.On;
+			} else {
+				lineNumbers = TextEditorLineNumbersStyle.Off;
+			}
 		}
 
 		let indent = model.getOptions();
 		return {
 			insertSpaces: indent.insertSpaces,
 			tabSize: indent.tabSize,
-			cursorStyle: cursorStyle
+			cursorStyle: cursorStyle,
+			lineNumbers: lineNumbers
 		};
 	}
 
-	private _setConfiguration(newConfiguration:IResolvedTextEditorConfiguration): void {
+	private _setConfiguration(newConfiguration: IResolvedTextEditorConfiguration): void {
 		if (configurationsEqual(this._configuration, newConfiguration)) {
 			return;
 		}
@@ -306,7 +355,7 @@ export class MainThreadTextEditor {
 		return editor.getControl() === this._codeEditor;
 	}
 
-	public applyEdits(versionIdCheck:number, edits:EditorCommon.ISingleEditOperation[], setEndOfLine:EndOfLine): boolean {
+	public applyEdits(versionIdCheck: number, edits: EditorCommon.ISingleEditOperation[], opts: IApplyEditsOptions): boolean {
 		if (this._model.getVersionId() !== versionIdCheck) {
 			console.warn('Model has changed in the meantime!');
 			// throw new Error('Model has changed in the meantime!');
@@ -315,9 +364,9 @@ export class MainThreadTextEditor {
 		}
 
 		if (this._codeEditor) {
-			if (setEndOfLine === EndOfLine.CRLF) {
+			if (opts.setEndOfLine === EndOfLine.CRLF) {
 				this._model.setEOL(EditorCommon.EndOfLineSequence.CRLF);
-			} else if (setEndOfLine === EndOfLine.LF) {
+			} else if (opts.setEndOfLine === EndOfLine.LF) {
 				this._model.setEOL(EditorCommon.EndOfLineSequence.LF);
 			}
 
@@ -330,9 +379,13 @@ export class MainThreadTextEditor {
 				};
 			});
 
-			this._codeEditor.pushUndoStop();
+			if (opts.undoStopBefore) {
+				this._codeEditor.pushUndoStop();
+			}
 			this._codeEditor.executeEdits('MainThreadTextEditor', transformedEdits);
-			this._codeEditor.pushUndoStop();
+			if (opts.undoStopAfter) {
+				this._codeEditor.pushUndoStop();
+			}
 			return true;
 		}
 
@@ -352,10 +405,10 @@ export class MainThreadEditorsTracker {
 	private _codeEditorService: ICodeEditorService;
 	private _modelService: IModelService;
 	private _updateMapping: RunOnceScheduler;
-	private _editorModelChangeListeners: {[editorId:string]:IDisposable;};
+	private _editorModelChangeListeners: { [editorId: string]: IDisposable; };
 
 	private _model2TextEditors: {
-		[modelUri:string]: MainThreadTextEditor[];
+		[modelUri: string]: MainThreadTextEditor[];
 	};
 	private _focusedTextEditorId: string;
 	private _visibleTextEditorIds: string[];
@@ -367,8 +420,8 @@ export class MainThreadEditorsTracker {
 	private _focusTracker: IFocusTracker;
 
 	constructor(
-		editorService:ICodeEditorService,
-		modelService:IModelService
+		editorService: ICodeEditorService,
+		modelService: IModelService
 	) {
 		this._codeEditorService = editorService;
 		this._modelService = modelService;
@@ -423,7 +476,7 @@ export class MainThreadEditorsTracker {
 		let allModels = this._modelService.getModels();
 		// Same filter as in extHostDocuments
 		allModels = allModels.filter((model) => !model.isTooLargeForHavingARichMode());
-		let allModelsMap: { [modelUri:string]: EditorCommon.IModel; } = Object.create(null);
+		let allModelsMap: { [modelUri: string]: EditorCommon.IModel; } = Object.create(null);
 		allModels.forEach((model) => {
 			allModelsMap[model.uri.toString()] = model;
 		});
@@ -549,7 +602,7 @@ export class MainThreadEditorsTracker {
 		return result;
 	}
 
-	private _setFocusedTextEditorId(focusedTextEditorId:string): void {
+	private _setFocusedTextEditorId(focusedTextEditorId: string): void {
 		if (this._focusedTextEditorId === focusedTextEditorId) {
 			// no change
 			return;
@@ -582,7 +635,7 @@ export class MainThreadEditorsTracker {
 
 		allCodeEditors.forEach((codeEditor) => {
 			let model = codeEditor.getModel();
-			if (!model || model.isTooLargeForHavingARichMode()) {
+			if (!model || model.isTooLargeForHavingARichMode() || !this._modelService.getModel(model.uri)) {
 				return;
 			}
 
@@ -621,7 +674,7 @@ export class MainThreadEditorsTracker {
 		return this._onDidChangeFocusedTextEditor.event;
 	}
 
-	public findTextEditorIdFor(codeEditor:EditorCommon.ICommonCodeEditor): string {
+	public findTextEditorIdFor(codeEditor: EditorCommon.ICommonCodeEditor): string {
 		let modelUris = Object.keys(this._model2TextEditors);
 		for (let i = 0, len = modelUris.length; i < len; i++) {
 			let editors = this._model2TextEditors[modelUris[i]];
@@ -635,23 +688,23 @@ export class MainThreadEditorsTracker {
 		return null;
 	}
 
-	public registerTextEditorDecorationType(key:string, options: EditorCommon.IDecorationRenderOptions): void {
+	public registerTextEditorDecorationType(key: string, options: EditorCommon.IDecorationRenderOptions): void {
 		this._codeEditorService.registerDecorationType(key, options);
 	}
 
-	public removeTextEditorDecorationType(key:string): void {
+	public removeTextEditorDecorationType(key: string): void {
 		this._codeEditorService.removeDecorationType(key);
 	}
 }
 
 interface IVisibleModels {
-	[modelUri:string]: {
+	[modelUri: string]: {
 		model: EditorCommon.IModel;
 		codeEditors: EditorCommon.ICommonCodeEditor[];
 	};
 }
 
-function strcmp(a:string, b:string): number {
+function strcmp(a: string, b: string): number {
 	if (a < b) {
 		return -1;
 	}

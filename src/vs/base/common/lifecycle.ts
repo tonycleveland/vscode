@@ -27,9 +27,7 @@ export function dispose<T extends IDisposable>(...disposables: T[]): T[] {
 	return [];
 }
 
-export function combinedDisposable(disposables: IDisposable[]): IDisposable;
-export function combinedDisposable(...disposables: IDisposable[]): IDisposable;
-export function combinedDisposable(disposables: any): IDisposable {
+export function combinedDisposable(disposables: IDisposable[]): IDisposable {
 	return { dispose: () => dispose(disposables) };
 }
 
@@ -49,7 +47,7 @@ export abstract class Disposable implements IDisposable {
 		this._toDispose = dispose(this._toDispose);
 	}
 
-	protected _register<T extends IDisposable>(t:T): T {
+	protected _register<T extends IDisposable>(t: T): T {
 		this._toDispose.push(t);
 		return t;
 	}

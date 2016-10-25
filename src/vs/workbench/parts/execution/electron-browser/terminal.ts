@@ -11,6 +11,8 @@ if (env.isLinux) {
 		defaultTerminalLinux = 'x-terminal-emulator';
 	} else if (process.env.DESKTOP_SESSION === 'gnome' || process.env.DESKTOP_SESSION === 'gnome-classic') {
 		defaultTerminalLinux = 'gnome-terminal';
+	} else if (process.env.DESKTOP_SESSION === 'kde-plasma') {
+		defaultTerminalLinux = 'konsole';
 	} else if (process.env.COLORTERM) {
 		defaultTerminalLinux = process.env.COLORTERM;
 	} else if (process.env.TERM) {
@@ -22,7 +24,7 @@ export const DEFAULT_TERMINAL_LINUX = defaultTerminalLinux;
 
 export const DEFAULT_TERMINAL_OSX = 'Terminal.app';
 
-export const DEFAULT_TERMINAL_WINDOWS = 'cmd';
+export const DEFAULT_TERMINAL_WINDOWS = '%COMSPEC%';
 
 export interface ITerminalConfiguration {
 	terminal: {

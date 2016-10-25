@@ -5,12 +5,12 @@
 'use strict';
 
 import * as nls from 'vs/nls';
-import {IEditorOptions} from 'vs/editor/common/editorCommon';
+import { IEditorOptions } from 'vs/editor/common/editorCommon';
 import * as platform from 'vs/base/common/platform';
-import {USUAL_WORD_SEPARATORS} from 'vs/editor/common/model/wordHelper';
+import { USUAL_WORD_SEPARATORS } from 'vs/editor/common/model/wordHelper';
 
 export interface IConfiguration {
-	editor:IEditorOptions;
+	editor: IEditorOptions;
 }
 
 export const DEFAULT_INDENTATION = {
@@ -40,10 +40,10 @@ class ConfigClass implements IConfiguration {
 			wordSeparators: USUAL_WORD_SEPARATORS,
 			selectionClipboard: true,
 			ariaLabel: nls.localize('editorViewAccessibleLabel', "Editor content"),
-			lineNumbers: true,
+			lineNumbers: 'on',
 			selectOnLineNumbers: true,
 			lineNumbersMinChars: 5,
-			glyphMargin: false,
+			glyphMargin: true,
 			lineDecorationsWidth: 10,
 			revealHorizontalRightPadding: 30,
 			roundedSelection: true,
@@ -56,6 +56,7 @@ class ConfigClass implements IConfiguration {
 				verticalHasArrows: false,
 				horizontalHasArrows: false
 			},
+			fixedOverflowWidgets: false,
 			overviewRulerLanes: 2,
 			cursorBlinking: 'blink',
 			mouseWheelZoom: false,
@@ -66,6 +67,7 @@ class ConfigClass implements IConfiguration {
 			scrollBeyondLastLine: true,
 			automaticLayout: false,
 			wrappingColumn: 300,
+			wordWrap: false,
 			wrappingIndent: 'same',
 			wordWrapBreakBeforeCharacters: '([{‘“〈《「『【〔（［｛｢£¥＄￡￥+＋',
 			wordWrapBreakAfterCharacters: ' \t})]?|&,;¢°′″‰℃、。｡､￠，．：；？！％・･ゝゞヽヾーァィゥェォッャュョヮヵヶぁぃぅぇぉっゃゅょゎゕゖㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ々〻ｧｨｩｪｫｬｭｮｯｰ’”〉》」』】〕）］｝｣',
@@ -83,17 +85,26 @@ class ConfigClass implements IConfiguration {
 			formatOnType: false,
 			suggestOnTriggerCharacters: true,
 			acceptSuggestionOnEnter: true,
+			snippetSuggestions: 'bottom',
+			emptySelectionClipboard: true,
+			tabCompletion: false,
+			wordBasedSuggestions: true,
+			suggestFontSize: 0,
+			suggestLineHeight: 0,
 			selectionHighlight: true,
+			codeLens: true,
 			referenceInfos: true,
 			folding: true,
-			renderWhitespace: false,
+			renderWhitespace: 'none',
 			renderControlCharacters: false,
 			renderIndentGuides: false,
+			renderLineHighlight: true,
 			useTabStops: true,
 
 			fontFamily: (
 				platform.isMacintosh ? DEFAULT_MAC_FONT_FAMILY : (platform.isLinux ? DEFAULT_LINUX_FONT_FAMILY : DEFAULT_WINDOWS_FONT_FAMILY)
 			),
+			fontWeight: 'normal',
 			fontSize: (
 				platform.isMacintosh ? 12 : 14
 			),
@@ -102,4 +113,4 @@ class ConfigClass implements IConfiguration {
 	}
 }
 
-export var DefaultConfig: IConfiguration = new ConfigClass();
+export const DefaultConfig: IConfiguration = new ConfigClass();

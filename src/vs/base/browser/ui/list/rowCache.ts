@@ -5,7 +5,7 @@
 
 import { IRenderer } from './list';
 import { IDisposable } from 'vs/base/common/lifecycle';
-import { emmet as $, addClass, removeClass } from 'vs/base/browser/dom';
+import { $, addClass, removeClass } from 'vs/base/browser/dom';
 
 export interface IRow {
 	domNode: HTMLElement;
@@ -28,7 +28,7 @@ function removeFromParent(element: HTMLElement): void {
 
 export class RowCache<T> implements IDisposable {
 
-	private cache: { [templateId:string]: IRow[]; };
+	private cache: { [templateId: string]: IRow[]; };
 	private scrollingRow: IRow;
 
 	constructor(private renderers: { [templateId: string]: IRenderer<T, any>; }) {

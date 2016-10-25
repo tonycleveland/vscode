@@ -3,20 +3,40 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { ParsedArgs } from 'vs/platform/environment/node/argv';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { TPromise } from 'vs/base/common/winjs.base';
 
 export const IEnvironmentService = createDecorator<IEnvironmentService>('environmentService');
 
 export interface IEnvironmentService {
 	_serviceBrand: any;
 
+	args: ParsedArgs;
+
+	execPath: string;
 	appRoot: string;
+
 	userHome: string;
 	userDataPath: string;
+
+	appSettingsHome: string;
+	appSettingsPath: string;
+	appKeybindingsPath: string;
+
+	disableExtensions: boolean;
 	extensionsPath: string;
 	extensionDevelopmentPath: string;
-	isBuilt: boolean;
+	extensionTestsPath: string;
 
-	createPaths(): TPromise<void>;
+	debugExtensionHost: { port: number; break: boolean; };
+
+	logExtensionHostCommunication: boolean;
+
+	isBuilt: boolean;
+	verbose: boolean;
+	wait: boolean;
+	performance: boolean;
+
+	mainIPCHandle: string;
+	sharedIPCHandle: string;
 }

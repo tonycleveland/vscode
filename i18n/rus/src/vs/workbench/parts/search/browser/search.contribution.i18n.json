@@ -9,10 +9,10 @@
 	"exclude.when": "Дополнительная проверка элементов того же уровня соответствующего файла. Используйте $(basename) в качестве переменной для соответствующего имени файла.",
 	"findInFolder": "Найти в папке",
 	"name": "Поиск",
-	"openAnythingHandlerDescription": "Открыть файлы и символы по имени",
-	"openSymbolDescriptionNormal": "Открыть символ по имени",
-	"searchConfigurationTitle": "Конфигурация поиска",
-	"showSearchViewlet": "Показать средство поиска",
-	"showTriggerActions": "Показать все символы",
+	"openAnythingHandlerDescription": "Перейти к файлу",
+	"openSymbolDescriptionNormal": "Перейти к символу в рабочей области",
+	"search.quickOpen.includeSymbols": "Настройте для включения результатов поиска глобальных символов в файлы по запросу для Quick Open.",
+	"searchConfigurationTitle": "Поиск",
+	"showTriggerActions": "Перейти к символу в рабочей области...",
 	"view": "Просмотреть"
 }

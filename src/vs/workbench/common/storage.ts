@@ -7,8 +7,9 @@
 import types = require('vs/base/common/types');
 import errors = require('vs/base/common/errors');
 import strings = require('vs/base/common/strings');
-import {IStorageService, StorageScope} from 'vs/platform/storage/common/storage';
-import {IWorkspaceContextService, IWorkspace} from 'vs/platform/workspace/common/workspace';
+import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
+import { IWorkspaceContextService, IWorkspace } from 'vs/platform/workspace/common/workspace';
+import { IEnvironmentService } from 'vs/platform/environment/common/environment';
 
 // Browser localStorage interface
 export interface IStorage {
@@ -38,9 +39,10 @@ export class Storage implements IStorageService {
 	constructor(
 		globalStorage: IStorage,
 		workspaceStorage: IStorage,
-		@IWorkspaceContextService contextService: IWorkspaceContextService
+		@IWorkspaceContextService private contextService: IWorkspaceContextService,
+		@IEnvironmentService private environmentService: IEnvironmentService
 	) {
-		let workspace = contextService.getWorkspace();
+		const workspace = contextService.getWorkspace();
 
 		this.globalStorage = globalStorage;
 		this.workspaceStorage = workspaceStorage || globalStorage;
@@ -49,7 +51,7 @@ export class Storage implements IStorageService {
 		this.workspaceKey = this.getWorkspaceKey(workspace);
 
 		// Make sure to delete all workspace storage if the workspace has been recreated meanwhile
-		let workspaceUniqueId: number = workspace ? workspace.uid : null;
+		const workspaceUniqueId: number = workspace ? workspace.uid : void 0;
 		if (types.isNumber(workspaceUniqueId)) {
 			this.cleanupWorkspaceScope(workspaceUniqueId, workspace.name);
 		}
@@ -65,8 +67,8 @@ export class Storage implements IStorageService {
 	}
 
 	private calculateWorkspaceKey(workspaceUrl: string): string {
-		let root = 'file:///';
-		let index = workspaceUrl.indexOf(root);
+		const root = 'file:///';
+		const index = workspaceUrl.indexOf(root);
 		if (index === 0) {
 			return strings.rtrim(workspaceUrl.substr(root.length), '/') + '/';
 		}
@@ -77,16 +79,16 @@ export class Storage implements IStorageService {
 	private cleanupWorkspaceScope(workspaceId: number, workspaceName: string): void {
 
 		// Get stored identifier from storage
-		let id = this.getInteger(Storage.WORKSPACE_IDENTIFIER, StorageScope.WORKSPACE);
+		const id = this.getInteger(Storage.WORKSPACE_IDENTIFIER, StorageScope.WORKSPACE);
 
 		// If identifier differs, assume the workspace got recreated and thus clean all storage for this workspace
 		if (types.isNumber(id) && workspaceId !== id) {
-			let keyPrefix = this.toStorageKey('', StorageScope.WORKSPACE);
-			let toDelete: string[] = [];
-			let length = this.workspaceStorage.length;
+			const keyPrefix = this.toStorageKey('', StorageScope.WORKSPACE);
+			const toDelete: string[] = [];
+			const length = this.workspaceStorage.length;
 
 			for (let i = 0; i < length; i++) {
-				let key = this.workspaceStorage.key(i);
+				const key = this.workspaceStorage.key(i);
 				if (key.indexOf(Storage.WORKSPACE_PREFIX) < 0) {
 					continue; // ignore stored things that don't belong to storage service or are defined globally
 				}
@@ -119,14 +121,14 @@ export class Storage implements IStorageService {
 	}
 
 	public store(key: string, value: any, scope = StorageScope.GLOBAL): void {
-		let storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
+		const storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
 
 		if (types.isUndefinedOrNull(value)) {
 			this.remove(key, scope); // we cannot store null or undefined, in that case we remove the key
 			return;
 		}
 
-		let storageKey = this.toStorageKey(key, scope);
+		const storageKey = this.toStorageKey(key, scope);
 
 		// Store
 		try {
@@ -137,9 +139,9 @@ export class Storage implements IStorageService {
 	}
 
 	public get(key: string, scope = StorageScope.GLOBAL, defaultValue?: any): string {
-		let storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
+		const storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
 
-		let value = storage.getItem(this.toStorageKey(key, scope));
+		const value = storage.getItem(this.toStorageKey(key, scope));
 		if (types.isUndefinedOrNull(value)) {
 			return defaultValue;
 		}
@@ -148,15 +150,15 @@ export class Storage implements IStorageService {
 	}
 
 	public remove(key: string, scope = StorageScope.GLOBAL): void {
-		let storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
-		let storageKey = this.toStorageKey(key, scope);
+		const storage = (scope === StorageScope.GLOBAL) ? this.globalStorage : this.workspaceStorage;
+		const storageKey = this.toStorageKey(key, scope);
 
 		// Remove
 		storage.removeItem(storageKey);
 	}
 
 	public swap(key: string, valueA: any, valueB: any, scope = StorageScope.GLOBAL, defaultValue?: any): void {
-		let value = this.get(key, scope);
+		const value = this.get(key, scope);
 		if (types.isUndefinedOrNull(value) && defaultValue) {
 			this.store(key, defaultValue, scope);
 		} else if (value === valueA.toString()) { // Convert to string because store is string based
@@ -167,7 +169,7 @@ export class Storage implements IStorageService {
 	}
 
 	public getInteger(key: string, scope = StorageScope.GLOBAL, defaultValue?: number): number {
-		let value = this.get(key, scope, defaultValue);
+		const value = this.get(key, scope, defaultValue);
 
 		if (types.isUndefinedOrNull(value)) {
 			return defaultValue;
@@ -177,7 +179,7 @@ export class Storage implements IStorageService {
 	}
 
 	public getBoolean(key: string, scope = StorageScope.GLOBAL, defaultValue?: boolean): boolean {
-		let value = this.get(key, scope, defaultValue);
+		const value = this.get(key, scope, defaultValue);
 
 		if (types.isUndefinedOrNull(value)) {
 			return defaultValue;
@@ -212,7 +214,7 @@ export class InMemoryLocalStorage implements IStorage {
 	}
 
 	public key(index: number): string {
-		let keys = Object.keys(this.store);
+		const keys = Object.keys(this.store);
 		if (keys.length > index) {
 			return keys[index];
 		}
@@ -229,7 +231,7 @@ export class InMemoryLocalStorage implements IStorage {
 	}
 
 	public getItem(key: string): string {
-		let item = this.store[key];
+		const item = this.store[key];
 		if (!types.isUndefinedOrNull(item)) {
 			return item;
 		}

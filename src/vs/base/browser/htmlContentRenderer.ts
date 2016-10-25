@@ -6,12 +6,12 @@
 'use strict';
 
 import DOM = require('vs/base/browser/dom');
-import {defaultGenerator} from 'vs/base/common/idGenerator';
-import {escape} from 'vs/base/common/strings';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IHTMLContentElement, MarkedString} from 'vs/base/common/htmlContent';
-import {marked} from 'vs/base/common/marked/marked';
-import {IMouseEvent} from 'vs/base/browser/mouseEvent';
+import { defaultGenerator } from 'vs/base/common/idGenerator';
+import { escape } from 'vs/base/common/strings';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { IHTMLContentElement, MarkedString } from 'vs/base/common/htmlContent';
+import { marked } from 'vs/base/common/marked/marked';
+import { IMouseEvent } from 'vs/base/browser/mouseEvent';
 
 export type RenderableContent = string | IHTMLContentElement | IHTMLContentElement[];
 
@@ -20,15 +20,9 @@ export interface RenderOptions {
 	codeBlockRenderer?: (modeId: string, value: string) => string | TPromise<string>;
 }
 
-export function renderMarkedString(markedStrings: MarkedString[], options: RenderOptions = {}): Node {
-	let htmlContentElements = markedStrings.map(value => {
-		if (typeof value === 'string') {
-			return { markdown: value };
-		} else if (typeof value === 'object') {
-			return { code: value };
-		};
-	});
-	return renderHtml(htmlContentElements, options);
+export function renderMarkedString(markedString: MarkedString, options: RenderOptions = {}): Node {
+	const htmlContentElement = typeof markedString === 'string' ? { markdown: markedString } : { code: markedString };
+	return renderHtml(htmlContentElement, options);
 }
 
 /**
@@ -100,7 +94,7 @@ function _renderHtml(content: IHTMLContentElement, options: RenderOptions = {}):
 			return `<a href="#" data-href="${href}" title="${title || text}">${text}</a>`;
 		};
 		renderer.paragraph = (text): string => {
-			return `<div>${text}</div>`;
+			return `<p>${text}</p>`;
 		};
 
 		if (options.codeBlockRenderer) {
@@ -115,10 +109,10 @@ function _renderHtml(content: IHTMLContentElement, options: RenderOptions = {}):
 					// but update the node with the real result later.
 					const id = defaultGenerator.nextId();
 					TPromise.join([value, withInnerHTML]).done(values => {
-						let [value] = values;
+						let strValue = values[0] as string;
 						let span = element.querySelector(`span[data-code="${id}"]`);
 						if (span) {
-							span.innerHTML = value;
+							span.innerHTML = strValue;
 						}
 					}, err => {
 						// ignore
@@ -220,7 +214,7 @@ class StringStream {
 	}
 }
 
-enum FormatType {
+const enum FormatType {
 	Invalid,
 	Root,
 	Text,

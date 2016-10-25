@@ -7,7 +7,10 @@ import 'vs/css!./list';
 import { IDisposable, dispose } from 'vs/base/common/lifecycle';
 import { isNumber } from 'vs/base/common/types';
 import * as DOM from 'vs/base/browser/dom';
-import Event, { Emitter, mapEvent, EventBufferer } from 'vs/base/common/event';
+import { EventType as TouchEventType } from 'vs/base/browser/touch';
+import { KeyCode } from 'vs/base/common/keyCodes';
+import { StandardKeyboardEvent } from 'vs/base/browser/keyboardEvent';
+import Event, { Emitter, EventBufferer, chain, mapEvent } from 'vs/base/common/event';
 import { domEvent } from 'vs/base/browser/event';
 import { IDelegate, IRenderer, IListMouseEvent, IFocusChangeEvent, ISelectionChangeEvent } from './list';
 import { ListView, IListViewOptions } from './listView';
@@ -25,8 +28,8 @@ class TraitRenderer<T, D> implements IRenderer<T, ITraitTemplateData<D>>
 {
 	constructor(
 		private controller: Trait<T>,
-		private renderer: IRenderer<T,D>
-	) {}
+		private renderer: IRenderer<T, D>
+	) { }
 
 	public get templateId(): string {
 		return this.renderer.templateId;
@@ -64,7 +67,7 @@ class Trait<T> implements IDisposable {
 		const end = start + deleteCount;
 		const indexes = [];
 
-		for (const index of indexes) {
+		for (let index of indexes) {
 			if (index >= start && index < end) {
 				continue;
 			}
@@ -76,7 +79,7 @@ class Trait<T> implements IDisposable {
 		this._onChange.fire({ indexes });
 	}
 
-	renderElement(element: T, index: number, container:HTMLElement): void {
+	renderElement(element: T, index: number, container: HTMLElement): void {
 		DOM.toggleClass(container, this._trait, this.contains(index));
 	}
 
@@ -107,11 +110,11 @@ class Trait<T> implements IDisposable {
 
 class FocusTrait<T> extends Trait<T> {
 
-	constructor(private getElementId:(number) => string) {
+	constructor(private getElementId: (number) => string) {
 		super('focused');
 	}
 
-	renderElement(element: T, index: number, container:HTMLElement): void {
+	renderElement(element: T, index: number, container: HTMLElement): void {
 		super.renderElement(element, index, container);
 		container.setAttribute('role', 'option');
 		container.setAttribute('id', this.getElementId(index));
@@ -120,15 +123,25 @@ class FocusTrait<T> extends Trait<T> {
 
 class Controller<T> implements IDisposable {
 
-	private toDispose: IDisposable[];
+	private disposables: IDisposable[];
 
 	constructor(
 		private list: List<T>,
 		private view: ListView<T>
 	) {
-		this.toDispose = [];
-		this.toDispose.push(view.addListener('mousedown', e => this.onMouseDown(e)));
-		this.toDispose.push(view.addListener('click', e => this.onClick(e)));
+		this.disposables = [];
+		this.disposables.push(view.addListener('mousedown', e => this.onMouseDown(e)));
+		this.disposables.push(view.addListener('click', e => this.onPointer(e)));
+		this.disposables.push(view.addListener(TouchEventType.Tap, e => this.onPointer(e)));
+
+		const onKeyDown = chain(domEvent(view.domNode, 'keydown'))
+			.map(e => new StandardKeyboardEvent(e));
+
+		onKeyDown.filter(e => e.keyCode === KeyCode.Enter).on(this.onEnter, this, this.disposables);
+		onKeyDown.filter(e => e.keyCode === KeyCode.UpArrow).on(this.onUpArrow, this, this.disposables);
+		onKeyDown.filter(e => e.keyCode === KeyCode.DownArrow).on(this.onDownArrow, this, this.disposables);
+		onKeyDown.filter(e => e.keyCode === KeyCode.PageUp).on(this.onPageUpArrow, this, this.disposables);
+		onKeyDown.filter(e => e.keyCode === KeyCode.PageDown).on(this.onPageDownArrow, this, this.disposables);
 	}
 
 	private onMouseDown(e: IListMouseEvent<T>) {
@@ -136,7 +149,7 @@ class Controller<T> implements IDisposable {
 		e.stopPropagation();
 	}
 
-	private onClick(e: IListMouseEvent<T>) {
+	private onPointer(e: IListMouseEvent<T>) {
 		e.preventDefault();
 		e.stopPropagation();
 		this.view.domNode.focus();
@@ -144,8 +157,46 @@ class Controller<T> implements IDisposable {
 		this.list.setSelection(e.index);
 	}
 
+	private onEnter(e: StandardKeyboardEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		this.list.setSelection(...this.list.getFocus());
+	}
+
+	private onUpArrow(e: StandardKeyboardEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		this.list.focusPrevious();
+		this.list.reveal(this.list.getFocus()[0]);
+		this.view.domNode.focus();
+	}
+
+	private onDownArrow(e: StandardKeyboardEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		this.list.focusNext();
+		this.list.reveal(this.list.getFocus()[0]);
+		this.view.domNode.focus();
+	}
+
+	private onPageUpArrow(e: StandardKeyboardEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		this.list.focusPreviousPage();
+		this.list.reveal(this.list.getFocus()[0]);
+		this.view.domNode.focus();
+	}
+
+	private onPageDownArrow(e: StandardKeyboardEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		this.list.focusNextPage();
+		this.list.reveal(this.list.getFocus()[0]);
+		this.view.domNode.focus();
+	}
+
 	dispose() {
-		this.toDispose = dispose(this.toDispose);
+		this.disposables = dispose(this.disposables);
 	}
 }
 
@@ -157,13 +208,14 @@ const DefaultOptions: IListOptions = {};
 export class List<T> implements IDisposable {
 
 	private static InstanceCount = 0;
-	private idPrefix = `list_id_${ ++List.InstanceCount }`;
+	private idPrefix = `list_id_${++List.InstanceCount}`;
 
 	private focus: Trait<T>;
 	private selection: Trait<T>;
 	private eventBufferer: EventBufferer;
 	private view: ListView<T>;
 	private controller: Controller<T>;
+	private disposables: IDisposable[];
 
 	get onFocusChange(): Event<IFocusChangeEvent<T>> {
 		return this.eventBufferer.wrapEvent(mapEvent(this.focus.onChange, e => this.toListEvent(e)));
@@ -196,8 +248,10 @@ export class List<T> implements IDisposable {
 		this.view.domNode.setAttribute('role', 'listbox');
 		this.view.domNode.tabIndex = 0;
 		this.controller = new Controller(this, this.view);
+		this.disposables = [this.focus, this.selection, this.view, this.controller];
 
 		this._onDOMFocus = domEvent(this.view.domNode, 'focus');
+		this.onFocusChange(this._onFocusChange, this, this.disposables);
 	}
 
 	splice(start: number, deleteCount: number, ...elements: T[]): void {
@@ -298,7 +352,7 @@ export class List<T> implements IDisposable {
 	}
 
 	focusPreviousPage(): void {
-		let firstPageIndex:number;
+		let firstPageIndex: number;
 		const scrollTop = this.view.getScrollTop();
 
 		if (scrollTop === 0) {
@@ -355,17 +409,19 @@ export class List<T> implements IDisposable {
 		}
 	}
 
-	getElementId(index:number): string {
-		return `${ this.idPrefix }_${ index }`;
+	getElementId(index: number): string {
+		return `${this.idPrefix}_${index}`;
 	}
 
-	private toListEvent<T>({ indexes }: ITraitChangeEvent) {
+	private toListEvent({ indexes }: ITraitChangeEvent) {
 		return { indexes, elements: indexes.map(i => this.view.element(i)) };
 	}
 
+	private _onFocusChange(): void {
+		DOM.toggleClass(this.view.domNode, 'element-focused', this.focus.get().length > 0);
+	}
+
 	dispose(): void {
-		this.view = dispose(this.view);
-		this.focus = dispose(this.focus);
-		this.selection = dispose(this.selection);
+		this.disposables = dispose(this.disposables);
 	}
 }

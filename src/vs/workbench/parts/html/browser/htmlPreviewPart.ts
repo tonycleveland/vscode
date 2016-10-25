@@ -5,22 +5,22 @@
 
 'use strict';
 
-import {localize} from 'vs/nls';
+import { localize } from 'vs/nls';
 import URI from 'vs/base/common/uri';
-import {TPromise} from 'vs/base/common/winjs.base';
-import {IModel} from 'vs/editor/common/editorCommon';
-import {Dimension, Builder} from 'vs/base/browser/builder';
-import {empty as EmptyDisposable} from 'vs/base/common/lifecycle';
-import {EditorOptions, EditorInput} from 'vs/workbench/common/editor';
-import {BaseEditor} from 'vs/workbench/browser/parts/editor/baseEditor';
-import {Position} from 'vs/platform/editor/common/editor';
-import {ITelemetryService} from 'vs/platform/telemetry/common/telemetry';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {IWorkbenchEditorService} from 'vs/workbench/services/editor/common/editorService';
-import {BaseTextEditorModel} from 'vs/workbench/common/editor/textEditorModel';
-import {HtmlInput} from 'vs/workbench/parts/html/common/htmlInput';
-import {IThemeService} from 'vs/workbench/services/themes/common/themeService';
-import {IOpenerService} from 'vs/platform/opener/common/opener';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { IModel } from 'vs/editor/common/editorCommon';
+import { Dimension, Builder } from 'vs/base/browser/builder';
+import { empty as EmptyDisposable, IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { EditorOptions, EditorInput } from 'vs/workbench/common/editor';
+import { BaseEditor } from 'vs/workbench/browser/parts/editor/baseEditor';
+import { Position } from 'vs/platform/editor/common/editor';
+import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { BaseTextEditorModel } from 'vs/workbench/common/editor/textEditorModel';
+import { HtmlInput } from 'vs/workbench/parts/html/common/htmlInput';
+import { IThemeService } from 'vs/workbench/services/themes/common/themeService';
+import { IOpenerService } from 'vs/platform/opener/common/opener';
 import Webview from './webview';
 
 /**
@@ -34,6 +34,7 @@ export class HtmlPreviewPart extends BaseEditor {
 	private _themeService: IThemeService;
 	private _openerService: IOpenerService;
 	private _webview: Webview;
+	private _webviewDisposables: IDisposable[];
 	private _container: HTMLDivElement;
 
 	private _baseUrl: URI;
@@ -59,7 +60,7 @@ export class HtmlPreviewPart extends BaseEditor {
 
 	dispose(): void {
 		// remove from dom
-		this._webview.dispose();
+		this._webviewDisposables = dispose(this._webviewDisposables);
 
 		// unhook listeners
 		this._themeChangeSubscription.dispose();
@@ -76,11 +77,14 @@ export class HtmlPreviewPart extends BaseEditor {
 
 	private get webview(): Webview {
 		if (!this._webview) {
-			this._webview = new Webview(this._container,
-				document.querySelector('.monaco-editor-background'),
-				uri => this._openerService.open(uri));
-
+			this._webview = new Webview(this._container, document.querySelector('.monaco-editor-background'));
 			this._webview.baseUrl = this._baseUrl && this._baseUrl.toString(true);
+
+			this._webviewDisposables = [
+				this._webview,
+				this._webview.onDidClickLink(uri => this._openerService.open(uri)),
+				this._webview.onDidLoadContent(data => this.telemetryService.publicLog('previewHtml', data.stats))
+			];
 		}
 		return this._webview;
 	}
@@ -99,15 +103,15 @@ export class HtmlPreviewPart extends BaseEditor {
 		super.setEditorVisible(visible, position);
 	}
 
-	private _doSetVisible(visible: boolean):void {
+	private _doSetVisible(visible: boolean): void {
 		if (!visible) {
 			this._themeChangeSubscription.dispose();
 			this._modelChangeSubscription.dispose();
-			this._webview.dispose();
+			this._webviewDisposables = dispose(this._webviewDisposables);
 			this._webview = undefined;
 		} else {
-			this._themeChangeSubscription = this._themeService.onDidThemeChange(themeId => this.webview.style(themeId));
-			this.webview.style(this._themeService.getTheme());
+			this._themeChangeSubscription = this._themeService.onDidColorThemeChange(themeId => this.webview.style(themeId));
+			this.webview.style(this._themeService.getColorTheme());
 
 			if (this._hasValidModel()) {
 				this._modelChangeSubscription = this._model.onDidChangeContent(() => this.webview.contents = this._model.getLinesContent());
@@ -145,7 +149,8 @@ export class HtmlPreviewPart extends BaseEditor {
 		}
 
 		return super.setInput(input, options).then(() => {
-			return this._editorService.resolveEditorModel({ resource: (<HtmlInput>input).getResource() }).then(model => {
+			let resourceUri = (<HtmlInput>input).getResource();
+			return this._editorService.resolveEditorModel({ resource: resourceUri }).then(model => {
 				if (model instanceof BaseTextEditorModel) {
 					this._model = model.textEditorModel;
 				}
@@ -153,6 +158,7 @@ export class HtmlPreviewPart extends BaseEditor {
 					return TPromise.wrapError<void>(localize('html.voidInput', "Invalid editor input."));
 				}
 				this._modelChangeSubscription = this._model.onDidChangeContent(() => this.webview.contents = this._model.getLinesContent());
+				this.webview.baseUrl = resourceUri.toString(true);
 				this.webview.contents = this._model.getLinesContent();
 			});
 		});

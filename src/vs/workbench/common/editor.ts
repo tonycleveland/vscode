@@ -4,18 +4,17 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {TPromise} from 'vs/base/common/winjs.base';
-import {EventEmitter} from 'vs/base/common/eventEmitter';
-import Event, {Emitter} from 'vs/base/common/event';
+import { TPromise } from 'vs/base/common/winjs.base';
+import Event, { Emitter } from 'vs/base/common/event';
 import types = require('vs/base/common/types');
 import URI from 'vs/base/common/uri';
-import {IEditor, IEditorViewState} from 'vs/editor/common/editorCommon';
-import {IEditorInput, IEditorModel, IEditorOptions, ITextEditorOptions, IResourceInput, Position} from 'vs/platform/editor/common/editor';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {Event as BaseEvent} from 'vs/base/common/events';
-import {IEditorGroupService} from 'vs/workbench/services/group/common/groupService';
-import {SyncDescriptor, AsyncDescriptor} from 'vs/platform/instantiation/common/descriptors';
-import {IInstantiationService, IConstructorSignature0} from 'vs/platform/instantiation/common/instantiation';
+import { IEditor, ICommonCodeEditor, IEditorViewState, IEditorOptions as ICodeEditorOptions } from 'vs/editor/common/editorCommon';
+import { IEditorInput, IEditorModel, IEditorOptions, ITextEditorOptions, IResourceInput, Position } from 'vs/platform/editor/common/editor';
+import { IWorkspaceContextService } from 'vs/platform/workspace/common/workspace';
+import { IEditorGroupService, GroupOrientation } from 'vs/workbench/services/group/common/groupService';
+import { SyncDescriptor, AsyncDescriptor } from 'vs/platform/instantiation/common/descriptors';
+import { IInstantiationService, IConstructorSignature0 } from 'vs/platform/instantiation/common/instantiation';
+import { IModel } from 'vs/editor/common/editorCommon';
 
 export enum ConfirmResult {
 	SAVE,
@@ -35,6 +34,16 @@ export interface IEditorDescriptor {
 export const Extensions = {
 	Editors: 'workbench.contributions.editors'
 };
+
+/**
+ * Text diff editor id.
+ */
+export const TEXT_DIFF_EDITOR_ID = 'workbench.editors.textDiffEditor';
+
+/**
+ * Binary diff editor id.
+ */
+export const BINARY_DIFF_EDITOR_ID = 'workbench.editors.binaryResourceDiffEditor';
 
 export interface IEditorRegistry {
 
@@ -119,14 +128,18 @@ export interface IEditorInputFactory {
  * Editor inputs are lightweight objects that can be passed to the workbench API to open inside the editor part.
  * Each editor input is mapped to an editor that is capable of opening it through the Platform facade.
  */
-export abstract class EditorInput extends EventEmitter implements IEditorInput {
+export abstract class EditorInput implements IEditorInput {
+	private _onDispose: Emitter<void>;
 	protected _onDidChangeDirty: Emitter<void>;
+	protected _onDidChangeLabel: Emitter<void>;
+
 	private disposed: boolean;
 
 	constructor() {
-		super();
-
 		this._onDidChangeDirty = new Emitter<void>();
+		this._onDidChangeLabel = new Emitter<void>();
+		this._onDispose = new Emitter<void>();
+
 		this.disposed = false;
 	}
 
@@ -135,6 +148,20 @@ export abstract class EditorInput extends EventEmitter implements IEditorInput {
 	 */
 	public get onDidChangeDirty(): Event<void> {
 		return this._onDidChangeDirty.event;
+	}
+
+	/**
+	 * Fired when the label this input changes.
+	 */
+	public get onDidChangeLabel(): Event<void> {
+		return this._onDidChangeLabel.event;
+	}
+
+	/**
+	 * Fired when the model gets disposed.
+	 */
+	public get onDispose(): Event<void> {
+		return this._onDispose.event;
 	}
 
 	/**
@@ -234,11 +261,12 @@ export abstract class EditorInput extends EventEmitter implements IEditorInput {
 	 * resolving the editor input.
 	 */
 	public dispose(): void {
-		this._onDidChangeDirty.dispose();
 		this.disposed = true;
-		this.emit('dispose');
+		this._onDispose.fire();
 
-		super.dispose();
+		this._onDidChangeDirty.dispose();
+		this._onDidChangeLabel.dispose();
+		this._onDispose.dispose();
 	}
 
 	/**
@@ -246,29 +274,6 @@ export abstract class EditorInput extends EventEmitter implements IEditorInput {
 	 */
 	public isDisposed(): boolean {
 		return this.disposed;
-	}
-}
-
-export class EditorInputEvent extends BaseEvent {
-	private _editorInput: IEditorInput;
-	private prevented: boolean;
-
-	constructor(editorInput: IEditorInput) {
-		super(null);
-
-		this._editorInput = editorInput;
-	}
-
-	public get editorInput(): IEditorInput {
-		return this._editorInput;
-	}
-
-	public prevent(): void {
-		this.prevented = true;
-	}
-
-	public isPrevented(): boolean {
-		return this.prevented;
 	}
 }
 
@@ -305,16 +310,6 @@ export interface IEncodingSupport {
 export interface IFileEditorInput extends IEditorInput, IEncodingSupport {
 
 	/**
-	 * Gets the mime type of the file this input is about.
-	 */
-	getMime(): string;
-
-	/**
-	 * Sets the mime type of the file this input is about.
-	 */
-	setMime(mime: string): void;
-
-	/**
 	 * Gets the absolute file resource URI this input is about.
 	 */
 	getResource(): URI;
@@ -340,8 +335,6 @@ export abstract class UntitledEditorInput extends EditorInput implements IEncodi
 	abstract isDirty(): boolean;
 
 	abstract suggestFileName(): string;
-
-	abstract getMime(): string;
 
 	abstract getEncoding(): string;
 
@@ -387,12 +380,28 @@ export abstract class BaseDiffEditorInput extends EditorInput {
 	}
 }
 
+export interface ITextEditorModel extends IEditorModel {
+	textEditorModel: IModel;
+}
+
 /**
  * The editor model is the heavyweight counterpart of editor input. Depending on the editor input, it
  * connects to the disk to retrieve content and may allow for saving it back or reverting it. Editor models
  * are typically cached for some while because they are expensive to construct.
  */
-export class EditorModel extends EventEmitter implements IEditorModel {
+export class EditorModel implements IEditorModel {
+	private _onDispose: Emitter<void>;
+
+	constructor() {
+		this._onDispose = new Emitter<void>();
+	}
+
+	/**
+	 * Fired when the model gets disposed.
+	 */
+	public get onDispose(): Event<void> {
+		return this._onDispose.event;
+	}
 
 	/**
 	 * Causes this model to load returning a promise when loading is completed.
@@ -412,9 +421,8 @@ export class EditorModel extends EventEmitter implements IEditorModel {
 	 * Subclasses should implement to free resources that have been claimed through loading.
 	 */
 	public dispose(): void {
-		this.emit('dispose');
-
-		super.dispose();
+		this._onDispose.fire();
+		this._onDispose.dispose();
 	}
 }
 
@@ -427,10 +435,10 @@ export class EditorOptions implements IEditorOptions {
 	 * Helper to create EditorOptions inline.
 	 */
 	public static create(settings: IEditorOptions): EditorOptions {
-		let options = new EditorOptions();
+		const options = new EditorOptions();
 		options.preserveFocus = settings.preserveFocus;
 		options.forceOpen = settings.forceOpen;
-		options.revealIfOpened = settings.revealIfOpened;
+		options.revealIfVisible = settings.revealIfVisible;
 		options.pinned = settings.pinned;
 		options.index = settings.index;
 		options.inactive = settings.inactive;
@@ -441,12 +449,15 @@ export class EditorOptions implements IEditorOptions {
 	/**
 	 * Inherit all options from other EditorOptions instance.
 	 */
-	public mixin(other: EditorOptions): void {
-		this.preserveFocus = other.preserveFocus;
-		this.forceOpen = other.forceOpen;
-		this.revealIfOpened = other.revealIfOpened;
-		this.pinned = other.pinned;
-		this.index = other.index;
+	public mixin(other: IEditorOptions): void {
+		if (other) {
+			this.preserveFocus = other.preserveFocus;
+			this.forceOpen = other.forceOpen;
+			this.revealIfVisible = other.revealIfVisible;
+			this.pinned = other.pinned;
+			this.index = other.index;
+			this.inactive = other.inactive;
+		}
 	}
 
 	/**
@@ -463,10 +474,9 @@ export class EditorOptions implements IEditorOptions {
 	public forceOpen: boolean;
 
 	/**
-	 * Will reveal the editor if it is already opened in any editor group.
-	 * This prevents duplicates of the same editor input showing up.
+	 * Will reveal the editor if it is already opened and visible in any of the opened editor groups.
 	 */
-	public revealIfOpened: boolean;
+	public revealIfVisible: boolean;
 
 	/**
 	 * An editor that is pinned remains in the editor stack even when another editor is being opened.
@@ -494,18 +504,19 @@ export class TextEditorOptions extends EditorOptions {
 	protected startColumn: number;
 	protected endLineNumber: number;
 	protected endColumn: number;
-	
+
 	private editorViewState: IEditorViewState;
+	private editorOptions: ICodeEditorOptions;
 
 	public static from(input: IResourceInput): TextEditorOptions {
 		let options: TextEditorOptions = null;
 		if (input && input.options) {
-			if (input.options.selection || input.options.forceOpen || input.options.revealIfOpened || input.options.preserveFocus || input.options.pinned || input.options.inactive || typeof input.options.index === 'number') {
+			if (input.options.selection || input.options.forceOpen || input.options.revealIfVisible || input.options.preserveFocus || input.options.pinned || input.options.inactive || typeof input.options.index === 'number') {
 				options = new TextEditorOptions();
 			}
 
 			if (input.options.selection) {
-				let selection = input.options.selection;
+				const selection = input.options.selection;
 				options.selection(selection.startLineNumber, selection.startColumn, selection.endLineNumber, selection.endColumn);
 			}
 
@@ -513,8 +524,8 @@ export class TextEditorOptions extends EditorOptions {
 				options.forceOpen = true;
 			}
 
-			if (input.options.revealIfOpened) {
-				options.revealIfOpened = true;
+			if (input.options.revealIfVisible) {
+				options.revealIfVisible = true;
 			}
 
 			if (input.options.preserveFocus) {
@@ -541,10 +552,10 @@ export class TextEditorOptions extends EditorOptions {
 	 * Helper to create TextEditorOptions inline.
 	 */
 	public static create(settings: ITextEditorOptions): TextEditorOptions {
-		let options = new TextEditorOptions();
+		const options = new TextEditorOptions();
 		options.preserveFocus = settings.preserveFocus;
 		options.forceOpen = settings.forceOpen;
-		options.revealIfOpened = settings.revealIfOpened;
+		options.revealIfVisible = settings.revealIfVisible;
 		options.pinned = settings.pinned;
 		options.index = settings.index;
 
@@ -580,8 +591,22 @@ export class TextEditorOptions extends EditorOptions {
 	/**
 	 * Sets the view state to be used when the editor is opening.
 	 */
-	public viewState(viewState: IEditorViewState): void {
-		this.editorViewState = viewState;
+	public fromEditor(editor: IEditor): void {
+
+		// View state
+		this.editorViewState = editor.saveViewState();
+
+		// Selected editor options
+		const codeEditor = <ICommonCodeEditor>editor;
+		if (typeof codeEditor.getConfiguration === 'function') {
+			const config = codeEditor.getConfiguration();
+			if (config && config.viewInfo && config.wrappingInfo) {
+				this.editorOptions = Object.create(null);
+				this.editorOptions.renderWhitespace = config.viewInfo.renderWhitespace;
+				this.editorOptions.renderControlCharacters = config.viewInfo.renderControlCharacters;
+				this.editorOptions.wrappingColumn = config.wrappingInfo.isViewportWrapping ? 0 : -1;
+			}
+		}
 	}
 
 	/**
@@ -589,12 +614,23 @@ export class TextEditorOptions extends EditorOptions {
 	 *
 	 * @return if something was applied
 	 */
-	public apply(textEditor: IEditor): boolean {
+	public apply(editor: IEditor): boolean {
+
+		// Editor options
+		if (this.editorOptions) {
+			editor.updateOptions(this.editorOptions);
+		}
+
+		// View state
+		return this.applyViewState(editor);
+	}
+
+	private applyViewState(editor: IEditor): boolean {
 		let gotApplied = false;
 
 		// First try viewstate
 		if (this.editorViewState) {
-			textEditor.restoreViewState(this.editorViewState);
+			editor.restoreViewState(this.editorViewState);
 			gotApplied = true;
 		}
 
@@ -603,24 +639,24 @@ export class TextEditorOptions extends EditorOptions {
 
 			// Select
 			if (!types.isUndefinedOrNull(this.endLineNumber) && !types.isUndefinedOrNull(this.endColumn)) {
-				let range = {
+				const range = {
 					startLineNumber: this.startLineNumber,
 					startColumn: this.startColumn,
 					endLineNumber: this.endLineNumber,
 					endColumn: this.endColumn
 				};
-				textEditor.setSelection(range);
-				textEditor.revealRangeInCenter(range);
+				editor.setSelection(range);
+				editor.revealRangeInCenter(range);
 			}
 
 			// Reveal
 			else {
-				let pos = {
+				const pos = {
 					lineNumber: this.startLineNumber,
 					column: this.startColumn
 				};
-				textEditor.setPosition(pos);
-				textEditor.revealPositionInCenter(pos);
+				editor.setPosition(pos);
+				editor.revealPositionInCenter(pos);
 			}
 
 			gotApplied = true;
@@ -648,13 +684,13 @@ export class TextDiffEditorOptions extends TextEditorOptions {
 	 * Helper to create TextDiffEditorOptions inline.
 	 */
 	public static create(settings: ITextDiffEditorOptions): TextDiffEditorOptions {
-		let options = new TextDiffEditorOptions();
+		const options = new TextDiffEditorOptions();
 
 		options.autoRevealFirstChange = settings.autoRevealFirstChange;
 
 		options.preserveFocus = settings.preserveFocus;
 		options.forceOpen = settings.forceOpen;
-		options.revealIfOpened = settings.revealIfOpened;
+		options.revealIfVisible = settings.revealIfVisible;
 		options.pinned = settings.pinned;
 		options.index = settings.index;
 
@@ -689,17 +725,20 @@ export function getUntitledOrFileResource(input: IEditorInput, supportDiff?: boo
 	}
 
 	// File
-	let fileInput = asFileEditorInput(input, supportDiff);
-	return fileInput && fileInput && fileInput.getResource();
+	const fileInput = asFileEditorInput(input, supportDiff);
+
+	return fileInput && fileInput.getResource();
 }
 
+// TODO@Ben every editor should have an associated resource
 export function getResource(input: IEditorInput): URI {
-	if (input && typeof (<any> input).getResource === 'function') {
-		let candidate = (<any>input).getResource();
+	if (input instanceof EditorInput && typeof (<any>input).getResource === 'function') {
+		const candidate = (<any>input).getResource();
 		if (candidate instanceof URI) {
 			return candidate;
 		}
 	}
+
 	return getUntitledOrFileResource(input, true);
 }
 
@@ -735,9 +774,9 @@ export function asFileEditorInput(obj: any, supportDiff?: boolean): IFileEditorI
 		obj = (<BaseDiffEditorInput>obj).modifiedInput;
 	}
 
-	let i = <IFileEditorInput>obj;
+	const i = <IFileEditorInput>obj;
 
-	return i instanceof EditorInput && types.areFunctions(i.setResource, i.setMime, i.setEncoding, i.getEncoding, i.getResource, i.getMime) ? i : null;
+	return i instanceof EditorInput && types.areFunctions(i.setResource, i.setEncoding, i.getEncoding, i.getResource, i.setPreferredEncoding) ? i : null;
 }
 
 export interface IStacksModelChangeEvent {
@@ -778,6 +817,7 @@ export interface IEditorGroup {
 	previewEditor: IEditorInput;
 
 	getEditor(index: number): IEditorInput;
+	getEditor(resource: URI): IEditorInput;
 	indexOf(editor: IEditorInput): number;
 
 	contains(editor: IEditorInput): boolean;
@@ -801,6 +841,7 @@ export interface IEditorContext extends IEditorIdentifier {
 export interface IGroupEvent {
 	editor: IEditorInput;
 	pinned: boolean;
+	index: number;
 }
 
 export type GroupIdentifier = number;
@@ -816,9 +857,35 @@ export interface IWorkbenchEditorConfiguration {
 	workbench: {
 		editor: {
 			showTabs: boolean;
+			showIcons: boolean;
 			enablePreview: boolean;
 			enablePreviewFromQuickOpen: boolean;
-			openPositioning: string;
+			openPositioning: 'left' | 'right' | 'first' | 'last';
+			defaultSideBySideLayout: GroupOrientation;
 		}
 	};
 }
+
+export const ActiveEditorMovePositioning = {
+	FIRST: 'first',
+	LAST: 'last',
+	LEFT: 'left',
+	RIGHT: 'right',
+	CENTER: 'center',
+	POSITION: 'position',
+};
+
+export const ActiveEditorMovePositioningBy = {
+	TAB: 'tab',
+	GROUP: 'group'
+};
+
+export interface ActiveEditorMoveArguments {
+	to?: string;
+	by?: string;
+	value?: number;
+}
+
+export var EditorCommands = {
+	MoveActiveEditor: 'moveActiveEditor'
+};

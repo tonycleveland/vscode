@@ -7,38 +7,38 @@
 
 import 'vs/css!./goToDeclaration';
 import * as nls from 'vs/nls';
-import {Throttler} from 'vs/base/common/async';
-import {onUnexpectedError} from 'vs/base/common/errors';
-import {MarkedString, textToMarkedString} from 'vs/base/common/htmlContent';
-import {KeyCode, KeyMod} from 'vs/base/common/keyCodes';
+import { Throttler } from 'vs/base/common/async';
+import { onUnexpectedError } from 'vs/base/common/errors';
+import { MarkedString } from 'vs/base/common/htmlContent';
+import { KeyCode, KeyMod, KeyChord } from 'vs/base/common/keyCodes';
 import * as platform from 'vs/base/common/platform';
 import Severity from 'vs/base/common/severity';
 import * as strings from 'vs/base/common/strings';
-import {TPromise} from 'vs/base/common/winjs.base';
+import { TPromise } from 'vs/base/common/winjs.base';
 import * as browser from 'vs/base/browser/browser';
-import {IKeyboardEvent} from 'vs/base/browser/keyboardEvent';
-import {IEditorService} from 'vs/platform/editor/common/editor';
-import {IMessageService} from 'vs/platform/message/common/message';
-import {Range} from 'vs/editor/common/core/range';
-import {EditorAction} from 'vs/editor/common/editorAction';
-import {Behaviour} from 'vs/editor/common/editorActionEnablement';
+import { IKeyboardEvent } from 'vs/base/browser/keyboardEvent';
+import { IEditorService } from 'vs/platform/editor/common/editor';
+import { IModeService } from 'vs/editor/common/services/modeService';
+import { IMessageService } from 'vs/platform/message/common/message';
+import { Range } from 'vs/editor/common/core/range';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {CommonEditorRegistry, ContextKey, EditorActionDescriptor} from 'vs/editor/common/editorCommonExtensions';
-import {Location, DefinitionProviderRegistry} from 'vs/editor/common/modes';
-import {ICodeEditor, IEditorMouseEvent, IMouseTarget} from 'vs/editor/browser/editorBrowser';
-import {EditorBrowserRegistry} from 'vs/editor/browser/editorBrowserExtensions';
-import {getDeclarationsAtPosition} from 'vs/editor/contrib/goToDeclaration/common/goToDeclaration';
-import {ReferencesController} from 'vs/editor/contrib/referenceSearch/browser/referencesController';
-import {ReferencesModel} from 'vs/editor/contrib/referenceSearch/browser/referencesModel';
-import {IDisposable, dispose} from 'vs/base/common/lifecycle';
-import {IPeekViewService} from 'vs/editor/contrib/zoneWidget/browser/peekViewWidget';
-import {optional} from 'vs/platform/instantiation/common/instantiation';
+import { editorAction, IActionOptions, ServicesAccessor, EditorAction } from 'vs/editor/common/editorCommonExtensions';
+import { Location, DefinitionProviderRegistry } from 'vs/editor/common/modes';
+import { ICodeEditor, IEditorMouseEvent, IMouseTarget } from 'vs/editor/browser/editorBrowser';
+import { editorContribution } from 'vs/editor/browser/editorBrowserExtensions';
+import { getDeclarationsAtPosition } from 'vs/editor/contrib/goToDeclaration/common/goToDeclaration';
+import { ReferencesController } from 'vs/editor/contrib/referenceSearch/browser/referencesController';
+import { ReferencesModel } from 'vs/editor/contrib/referenceSearch/browser/referencesModel';
+import { IDisposable, dispose } from 'vs/base/common/lifecycle';
+import { PeekContext } from 'vs/editor/contrib/zoneWidget/browser/peekViewWidget';
+import { ContextKeyExpr } from 'vs/platform/contextkey/common/contextkey';
 
+import ModeContextKeys = editorCommon.ModeContextKeys;
+import EditorContextKeys = editorCommon.EditorContextKeys;
 
 export class DefinitionActionConfig {
 
 	constructor(
-		public condition = Behaviour.WidgetFocus | Behaviour.ShowInContextMenu | Behaviour.UpdateOnCursorPositionChange,
 		public openToSide = false,
 		public openInPeek = false,
 		public filterCurrent = true
@@ -49,36 +49,19 @@ export class DefinitionActionConfig {
 
 export class DefinitionAction extends EditorAction {
 
-	constructor(
-		descriptor: editorCommon.IEditorActionDescriptorData,
-		editor: editorCommon.ICommonCodeEditor,
-		private _messageService: IMessageService,
-		private _editorService: IEditorService,
-		private _configuration: DefinitionActionConfig
-	) {
-		super(descriptor, editor, _configuration.condition);
+	private _configuration: DefinitionActionConfig;
+
+	constructor(configuration: DefinitionActionConfig, opts: IActionOptions) {
+		super(opts);
+		this._configuration = configuration;
 	}
 
-	public getGroupId(): string {
-		return '1_goto/2_visitDefinition';
-	}
+	public run(accessor: ServicesAccessor, editor: editorCommon.ICommonCodeEditor): TPromise<void> {
+		const messageService = accessor.get(IMessageService);
+		const editorService = accessor.get(IEditorService);
 
-	public isSupported(): boolean {
-		return DefinitionProviderRegistry.has(this.editor.getModel()) && super.isSupported();
-	}
-
-	public getEnablementState(): boolean {
-		if (!super.getEnablementState()) {
-			return false;
-		}
-
-		return DefinitionProviderRegistry.has(this.editor.getModel());
-	}
-
-	public run(): TPromise<any> {
-
-		let model = this.editor.getModel();
-		let pos = this.editor.getPosition();
+		let model = editor.getModel();
+		let pos = editor.getPosition();
 
 		return getDeclarationsAtPosition(model, pos).then(references => {
 
@@ -111,103 +94,130 @@ export class DefinitionAction extends EditorAction {
 				return;
 			}
 
-			return this._onResult(new ReferencesModel(result));
+			return this._onResult(editorService, editor, new ReferencesModel(result));
 
 		}, (err) => {
 			// report an error
-			this._messageService.show(Severity.Error, err);
+			messageService.show(Severity.Error, err);
 			return false;
 		});
 	}
 
-	private _onResult(model: ReferencesModel) {
+	private _onResult(editorService: IEditorService, editor: editorCommon.ICommonCodeEditor, model: ReferencesModel) {
 		if (this._configuration.openInPeek) {
-			this._openInPeek(this.editor, model);
+			this._openInPeek(editorService, editor, model);
 		} else {
-			let next = model.nearestReference(this.editor.getModel().uri, this.editor.getPosition());
-			this._openReference(next, this._configuration.openToSide).then(editor => {
+			let next = model.nearestReference(editor.getModel().uri, editor.getPosition());
+			this._openReference(editorService, next, this._configuration.openToSide).then(editor => {
 				if (model.references.length > 1) {
-					this._openInPeek(editor, model);
+					this._openInPeek(editorService, editor, model);
 				}
 			});
 		}
 	}
 
-	private _openReference(reference: Location, sideBySide: boolean): TPromise<editorCommon.ICommonCodeEditor>{
+	private _openReference(editorService: IEditorService, reference: Location, sideBySide: boolean): TPromise<editorCommon.ICommonCodeEditor> {
 		let {uri, range} = reference;
-		return this._editorService.openEditor({ resource:uri, options: { selection: range } }, sideBySide).then(editor => {
-			return <editorCommon.IEditor> editor.getControl();
+		return editorService.openEditor({
+			resource: uri,
+			options: {
+				selection: range,
+				revealIfVisible: !sideBySide
+			}
+		}, sideBySide).then(editor => {
+			return <editorCommon.IEditor>editor.getControl();
 		});
 	}
 
-	private _openInPeek(target: editorCommon.ICommonCodeEditor, model: ReferencesModel) {
-		let controller = ReferencesController.getController(target);
-		controller.toggleWidget(target.getSelection(), TPromise.as(model), {
-			getMetaTitle: (model) => {
-				return model.references.length > 1 && nls.localize('meta.title', " – {0} definitions", model.references.length);
+	private _openInPeek(editorService: IEditorService, target: editorCommon.ICommonCodeEditor, model: ReferencesModel) {
+		let controller = ReferencesController.get(target);
+		if (controller) {
+			controller.toggleWidget(target.getSelection(), TPromise.as(model), {
+				getMetaTitle: (model) => {
+					return model.references.length > 1 && nls.localize('meta.title', " – {0} definitions", model.references.length);
+				},
+				onGoto: (reference) => {
+					controller.closeWidget();
+					return this._openReference(editorService, reference, false);
+				}
+			});
+		}
+	}
+}
+
+const goToDeclarationKb = platform.isWeb
+	? KeyMod.CtrlCmd | KeyCode.F12
+	: KeyCode.F12;
+
+@editorAction
+export class GoToDefinitionAction extends DefinitionAction {
+
+	public static ID = 'editor.action.goToDeclaration';
+
+	constructor() {
+		super(new DefinitionActionConfig(), {
+			id: GoToDefinitionAction.ID,
+			label: nls.localize('actions.goToDecl.label', "Go to Definition"),
+			alias: 'Go to Definition',
+			precondition: ModeContextKeys.hasDefinitionProvider,
+			kbOpts: {
+				kbExpr: EditorContextKeys.TextFocus,
+				primary: goToDeclarationKb
 			},
-			onGoto: (reference) => {
-				controller.closeWidget();
-				return this._openReference(reference, false);
+			menuOpts: {
+				group: 'navigation',
+				order: 1.1
 			}
 		});
 	}
 }
 
-export class GoToDefinitionAction extends DefinitionAction {
-
-	public static ID = 'editor.action.goToDeclaration';
-
-	constructor(
-		descriptor: editorCommon.IEditorActionDescriptorData,
-		editor: editorCommon.ICommonCodeEditor,
-		@IMessageService messageService: IMessageService,
-		@IEditorService editorService: IEditorService
-	) {
-		super(descriptor, editor, messageService, editorService, new DefinitionActionConfig());
-	}
-
-}
-
+@editorAction
 export class OpenDefinitionToSideAction extends DefinitionAction {
 
 	public static ID = 'editor.action.openDeclarationToTheSide';
 
-	constructor(
-		descriptor: editorCommon.IEditorActionDescriptorData,
-		editor: editorCommon.ICommonCodeEditor,
-		@IMessageService messageService: IMessageService,
-		@IEditorService editorService: IEditorService
-	) {
-		super(descriptor, editor, messageService, editorService, new DefinitionActionConfig(Behaviour.WidgetFocus | Behaviour.UpdateOnCursorPositionChange, true));
+	constructor() {
+		super(new DefinitionActionConfig(true), {
+			id: OpenDefinitionToSideAction.ID,
+			label: nls.localize('actions.goToDeclToSide.label', "Open Definition to the Side"),
+			alias: 'Open Definition to the Side',
+			precondition: ModeContextKeys.hasDefinitionProvider,
+			kbOpts: {
+				kbExpr: EditorContextKeys.TextFocus,
+				primary: KeyChord(KeyMod.CtrlCmd | KeyCode.KEY_K, goToDeclarationKb)
+			}
+		});
 	}
 }
 
+@editorAction
 export class PeekDefinitionAction extends DefinitionAction {
-
-	public static ID = 'editor.action.previewDeclaration';
-
-	constructor(
-		descriptor: editorCommon.IEditorActionDescriptorData,
-		editor: editorCommon.ICommonCodeEditor,
-		@IMessageService messageService: IMessageService,
-		@IEditorService editorService: IEditorService,
-		@optional(IPeekViewService) private _peekViewService: IPeekViewService
-	) {
-		super(descriptor, editor, messageService, editorService, new DefinitionActionConfig(void 0, void 0, true, false));
-	}
-
-	getEnablementState(): boolean {
-		return (!this._peekViewService || !this._peekViewService.isActive)
-			&& super.getEnablementState();
+	constructor() {
+		super(new DefinitionActionConfig(void 0, true, false), {
+			id: 'editor.action.previewDeclaration',
+			label: nls.localize('actions.previewDecl.label', "Peek Definition"),
+			alias: 'Peek Definition',
+			precondition: ContextKeyExpr.and(ModeContextKeys.hasDefinitionProvider, PeekContext.notInPeekEditor),
+			kbOpts: {
+				kbExpr: EditorContextKeys.TextFocus,
+				primary: KeyMod.Alt | KeyCode.F12,
+				linux: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F10 }
+			},
+			menuOpts: {
+				group: 'navigation',
+				order: 1.2
+			}
+		});
 	}
 }
 
 // --- Editor Contribution to goto definition using the mouse and a modifier key
 
+@editorContribution
 class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorContribution {
 
-	static ID = 'editor.contrib.gotodefinitionwithmouse';
+	private static ID = 'editor.contrib.gotodefinitionwithmouse';
 	static TRIGGER_MODIFIER = platform.isMacintosh ? 'metaKey' : 'ctrlKey';
 	static TRIGGER_SIDEBYSIDE_KEY_VALUE = KeyCode.Alt;
 	static TRIGGER_KEY_VALUE = platform.isMacintosh ? KeyCode.Meta : KeyCode.Ctrl;
@@ -223,7 +233,8 @@ class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorC
 
 	constructor(
 		editor: ICodeEditor,
-		@IEditorService private editorService: IEditorService
+		@IEditorService private editorService: IEditorService,
+		@IModeService private modeService: IModeService
 	) {
 		this.toUnhook = [];
 		this.decorations = [];
@@ -301,30 +312,27 @@ class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorC
 					startColumn: word.startColumn,
 					endLineNumber: position.lineNumber,
 					endColumn: word.endColumn
-				}, nls.localize('multipleResults', "Click to show the {0} definitions found.", results.length), false);
+				}, nls.localize('multipleResults', "Click to show {0} definitions.", results.length));
 			}
 
 			// Single result
 			else {
 				let result = results[0];
 				this.editorService.resolveEditorModel({ resource: result.uri }).then(model => {
-					let source: string;
+					let hoverMessage: MarkedString;
 					if (model && model.textEditorModel) {
-
-						let from = Math.max(1, result.range.startLineNumber),
-							to: number,
-							editorModel: editorCommon.IModel;
-
-						editorModel = <editorCommon.IModel>model.textEditorModel;
+						const editorModel = <editorCommon.IModel>model.textEditorModel;
+						let from = Math.max(1, result.range.startLineNumber);
+						let to: number;
 
 						// if we have a range, take that into consideration for the "to" position, otherwise fallback to MAX_SOURCE_PREVIEW_LINES
-						if (result.range.startLineNumber !== result.range.endLineNumber || result.range.startColumn !== result.range.endColumn) {
+						if (!Range.isEmpty(result.range)) {
 							to = Math.min(result.range.endLineNumber, result.range.startLineNumber + GotoDefinitionWithMouseEditorContribution.MAX_SOURCE_PREVIEW_LINES, editorModel.getLineCount());
 						} else {
 							to = Math.min(from + GotoDefinitionWithMouseEditorContribution.MAX_SOURCE_PREVIEW_LINES, editorModel.getLineCount());
 						}
 
-						source = editorModel.getValueInRange({
+						let source = editorModel.getValueInRange({
 							startLineNumber: from,
 							startColumn: 1,
 							endLineNumber: to,
@@ -349,9 +357,15 @@ class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorC
 
 						source = source.replace(new RegExp(`^([ \\t]{${min}})`, 'gm'), strings.empty);
 
-						if (result.range.endLineNumber - result.range.startLineNumber > GotoDefinitionWithMouseEditorContribution.MAX_SOURCE_PREVIEW_LINES) {
+						if (to < editorModel.getLineCount()) {
 							source += '\n\u2026';
 						}
+
+						const language = this.modeService.getModeIdByFilenameOrFirstLine(editorModel.uri.fsPath);
+						hoverMessage = {
+							language,
+							value: source
+						};
 					}
 
 					this.addDecoration({
@@ -359,35 +373,19 @@ class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorC
 						startColumn: word.startColumn,
 						endLineNumber: position.lineNumber,
 						endColumn: word.endColumn
-					}, source, true);
+					}, hoverMessage);
 				});
 			}
 		}).done(undefined, onUnexpectedError);
 	}
 
-	private addDecoration(range: editorCommon.IRange, text: string, isCode: boolean): void {
-		let model = this.editor.getModel();
-		if (!model) {
-			return;
-		}
+	private addDecoration(range: editorCommon.IRange, hoverMessage: MarkedString): void {
 
-		let htmlMessage: MarkedString = void 0;;
-		if (text && text.trim().length > 0) {
-			if (isCode) {
-				htmlMessage = {
-					language: model.getMode().getId(),
-					value: text
-				};
-			} else {
-				htmlMessage = textToMarkedString(text);
-			}
-		}
-
-		let newDecorations = {
+		const newDecorations: editorCommon.IModelDeltaDecoration = {
 			range: range,
 			options: {
 				inlineClassName: 'goto-definition-link',
-				htmlMessage: [htmlMessage]
+				hoverMessage
 			}
 		};
 
@@ -481,29 +479,3 @@ class GotoDefinitionWithMouseEditorContribution implements editorCommon.IEditorC
 		this.toUnhook = dispose(this.toUnhook);
 	}
 }
-
-// register actions
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(PeekDefinitionAction, PeekDefinitionAction.ID, nls.localize('actions.previewDecl.label', "Peek Definition"), {
-	context: ContextKey.EditorTextFocus,
-	primary: KeyMod.Alt | KeyCode.F12,
-	linux: { primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F10 },
-}, 'Peek Definition'));
-
-let goToDeclarationKb: number;
-if (platform.isWeb) {
-	goToDeclarationKb = KeyMod.CtrlCmd | KeyCode.F12;
-} else {
-	goToDeclarationKb = KeyCode.F12;
-}
-
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(GoToDefinitionAction, GoToDefinitionAction.ID, nls.localize('actions.goToDecl.label', "Go to Definition"), {
-	context: ContextKey.EditorTextFocus,
-	primary: goToDeclarationKb
-}, 'Go to Definition'));
-
-CommonEditorRegistry.registerEditorAction(new EditorActionDescriptor(OpenDefinitionToSideAction, OpenDefinitionToSideAction.ID, nls.localize('actions.goToDeclToSide.label', "Open Definition to the Side"), {
-	context: ContextKey.EditorTextFocus,
-	primary: KeyMod.chord(KeyMod.CtrlCmd | KeyCode.KEY_K, goToDeclarationKb)
-}, 'Open Definition to the Side'));
-
-EditorBrowserRegistry.registerEditorContribution(GotoDefinitionWithMouseEditorContribution);

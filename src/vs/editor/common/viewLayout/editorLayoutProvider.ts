@@ -4,47 +4,47 @@
  *--------------------------------------------------------------------------------------------*/
 'use strict';
 
-import {EditorLayoutInfo, OverviewRulerPosition} from 'vs/editor/common/editorCommon';
+import { EditorLayoutInfo, OverviewRulerPosition } from 'vs/editor/common/editorCommon';
 
 export interface IEditorLayoutProviderOpts {
-	outerWidth:number;
-	outerHeight:number;
+	outerWidth: number;
+	outerHeight: number;
 
-	showGlyphMargin:boolean;
-	lineHeight:number;
+	showGlyphMargin: boolean;
+	lineHeight: number;
 
-	showLineNumbers:boolean;
-	lineNumbersMinChars:number;
-	lineDecorationsWidth:number;
-	maxDigitWidth:number;
+	showLineNumbers: boolean;
+	lineNumbersMinChars: number;
+	lineDecorationsWidth: number;
+	maxDigitWidth: number;
 
-	lineCount: number;
+	maxLineNumber: number;
 
-	verticalScrollbarWidth:number;
-	verticalScrollbarHasArrows:boolean;
+	verticalScrollbarWidth: number;
+	verticalScrollbarHasArrows: boolean;
 	scrollbarArrowSize: number;
-	horizontalScrollbarHeight:number;
+	horizontalScrollbarHeight: number;
 }
 
 export class EditorLayoutProvider {
-	public static compute(_opts:IEditorLayoutProviderOpts): EditorLayoutInfo {
-		const outerWidth = _opts.outerWidth|0;
-		const outerHeight = _opts.outerHeight|0;
+	public static compute(_opts: IEditorLayoutProviderOpts): EditorLayoutInfo {
+		const outerWidth = _opts.outerWidth | 0;
+		const outerHeight = _opts.outerHeight | 0;
 		const showGlyphMargin = Boolean(_opts.showGlyphMargin);
-		const lineHeight = _opts.lineHeight|0;
+		const lineHeight = _opts.lineHeight | 0;
 		const showLineNumbers = Boolean(_opts.showLineNumbers);
-		const lineNumbersMinChars = _opts.lineNumbersMinChars|0;
-		const lineDecorationsWidth = _opts.lineDecorationsWidth|0;
+		const lineNumbersMinChars = _opts.lineNumbersMinChars | 0;
+		const lineDecorationsWidth = _opts.lineDecorationsWidth | 0;
 		const maxDigitWidth = Number(_opts.maxDigitWidth);
-		const lineCount = _opts.lineCount|0;
-		const verticalScrollbarWidth = _opts.verticalScrollbarWidth|0;
+		const maxLineNumber = _opts.maxLineNumber | 0;
+		const verticalScrollbarWidth = _opts.verticalScrollbarWidth | 0;
 		const verticalScrollbarHasArrows = Boolean(_opts.verticalScrollbarHasArrows);
-		const scrollbarArrowSize = _opts.scrollbarArrowSize|0;
-		const horizontalScrollbarHeight = _opts.horizontalScrollbarHeight|0;
+		const scrollbarArrowSize = _opts.scrollbarArrowSize | 0;
+		const horizontalScrollbarHeight = _opts.horizontalScrollbarHeight | 0;
 
 		let lineNumbersWidth = 0;
 		if (showLineNumbers) {
-			let digitCount = Math.max(this.digitCount(lineCount), lineNumbersMinChars);
+			let digitCount = Math.max(this.digitCount(maxLineNumber), lineNumbersMinChars);
 			lineNumbersWidth = Math.round(digitCount * maxDigitWidth);
 		}
 
@@ -94,7 +94,7 @@ export class EditorLayoutProvider {
 		});
 	}
 
-	private static digitCount(n:number): number {
+	private static digitCount(n: number): number {
 		var r = 0;
 		while (n) {
 			n = Math.floor(n / 10);

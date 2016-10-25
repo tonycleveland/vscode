@@ -7,37 +7,41 @@
 
 import * as assert from 'assert';
 import { TestInstantiationService } from 'vs/test/utils/instantiationTestUtils';
-import {setUnexpectedErrorHandler, errorHandler} from 'vs/base/common/errors';
+import { setUnexpectedErrorHandler, errorHandler } from 'vs/base/common/errors';
 import URI from 'vs/base/common/uri';
 import * as types from 'vs/workbench/api/node/extHostTypes';
 import * as EditorCommon from 'vs/editor/common/editorCommon';
-import {Model as EditorModel} from 'vs/editor/common/model/model';
-import {Position as EditorPosition} from 'vs/editor/common/core/position';
-import {Range as EditorRange} from 'vs/editor/common/core/range';
-import {TestThreadService} from './testThreadService';
-import {IMarkerService} from 'vs/platform/markers/common/markers';
-import {IThreadService} from 'vs/workbench/services/thread/common/threadService';
-import {ExtHostLanguageFeatures} from 'vs/workbench/api/node/extHostLanguageFeatures';
-import {MainThreadLanguageFeatures} from 'vs/workbench/api/node/mainThreadLanguageFeatures';
-import {ExtHostCommands} from 'vs/workbench/api/node/extHostCommands';
-import {MainThreadCommands} from 'vs/workbench/api/node/mainThreadCommands';
-import {ExtHostDocuments} from 'vs/workbench/api/node/extHostDocuments';
-import {getDocumentSymbols} from 'vs/editor/contrib/quickOpen/common/quickOpen';
-import {DocumentSymbolProviderRegistry, DocumentHighlightKind} from 'vs/editor/common/modes';
-import {getCodeLensData} from 'vs/editor/contrib/codelens/common/codelens';
-import {getDeclarationsAtPosition} from 'vs/editor/contrib/goToDeclaration/common/goToDeclaration';
-import {getHover} from 'vs/editor/contrib/hover/common/hover';
-import {getOccurrencesAtPosition} from 'vs/editor/contrib/wordHighlighter/common/wordHighlighter';
-import {provideReferences} from 'vs/editor/contrib/referenceSearch/common/referenceSearch';
-import {getCodeActions} from 'vs/editor/contrib/quickFix/common/quickFix';
-import {getNavigateToItems} from 'vs/workbench/parts/search/common/search';
-import {rename} from 'vs/editor/contrib/rename/common/rename';
-import {provideSignatureHelp} from 'vs/editor/contrib/parameterHints/common/parameterHints';
-import {provideCompletionItems} from 'vs/editor/contrib/suggest/common/suggest';
-import {getDocumentFormattingEdits, getDocumentRangeFormattingEdits, getOnTypeFormattingEdits} from 'vs/editor/contrib/format/common/format';
-import {asWinJsPromise} from 'vs/base/common/async';
-import {MainContext, ExtHostContext} from 'vs/workbench/api/node/extHost.protocol';
-import {ExtHostDiagnostics} from 'vs/workbench/api/node/extHostDiagnostics';
+import { Model as EditorModel } from 'vs/editor/common/model/model';
+import { Position as EditorPosition } from 'vs/editor/common/core/position';
+import { Range as EditorRange } from 'vs/editor/common/core/range';
+import { TestThreadService } from './testThreadService';
+import { IMarkerService } from 'vs/platform/markers/common/markers';
+import { IThreadService } from 'vs/workbench/services/thread/common/threadService';
+import { ExtHostLanguageFeatures } from 'vs/workbench/api/node/extHostLanguageFeatures';
+import { MainThreadLanguageFeatures } from 'vs/workbench/api/node/mainThreadLanguageFeatures';
+import { ExtHostCommands } from 'vs/workbench/api/node/extHostCommands';
+import { MainThreadCommands } from 'vs/workbench/api/node/mainThreadCommands';
+import { IHeapService } from 'vs/workbench/api/node/mainThreadHeapService';
+import { ExtHostDocuments } from 'vs/workbench/api/node/extHostDocuments';
+import { getDocumentSymbols } from 'vs/editor/contrib/quickOpen/common/quickOpen';
+import { DocumentSymbolProviderRegistry, DocumentHighlightKind } from 'vs/editor/common/modes';
+import { getCodeLensData } from 'vs/editor/contrib/codelens/common/codelens';
+import { getDeclarationsAtPosition } from 'vs/editor/contrib/goToDeclaration/common/goToDeclaration';
+import { getHover } from 'vs/editor/contrib/hover/common/hover';
+import { getOccurrencesAtPosition } from 'vs/editor/contrib/wordHighlighter/common/wordHighlighter';
+import { provideReferences } from 'vs/editor/contrib/referenceSearch/common/referenceSearch';
+import { getCodeActions } from 'vs/editor/contrib/quickFix/common/quickFix';
+import { getWorkspaceSymbols } from 'vs/workbench/parts/search/common/search';
+import { rename } from 'vs/editor/contrib/rename/common/rename';
+import { provideSignatureHelp } from 'vs/editor/contrib/parameterHints/common/parameterHints';
+import { provideSuggestionItems } from 'vs/editor/contrib/suggest/common/suggest';
+import { getDocumentFormattingEdits, getDocumentRangeFormattingEdits, getOnTypeFormattingEdits } from 'vs/editor/contrib/format/common/format';
+import { getLinks } from 'vs/editor/contrib/links/common/links';
+import { asWinJsPromise } from 'vs/base/common/async';
+import { MainContext, ExtHostContext } from 'vs/workbench/api/node/extHost.protocol';
+import { ExtHostDiagnostics } from 'vs/workbench/api/node/extHostDiagnostics';
+import { ExtHostHeapService } from 'vs/workbench/api/node/extHostHeapService';
+import * as vscode from 'vscode';
 
 const defaultSelector = { scheme: 'far' };
 const model: EditorCommon.IModel = EditorModel.createFromString(
@@ -56,14 +60,21 @@ let disposables: vscode.Disposable[] = [];
 let threadService: TestThreadService;
 let originalErrorHandler: (e: any) => any;
 
-suite('ExtHostLanguageFeatures', function() {
+suite('ExtHostLanguageFeatures', function () {
 
 	suiteSetup(() => {
 
 		threadService = new TestThreadService();
-		let instantiationService= new TestInstantiationService();
+		let instantiationService = new TestInstantiationService();
 		instantiationService.stub(IThreadService, threadService);
 		instantiationService.stub(IMarkerService);
+		instantiationService.stub(IHeapService, {
+			_serviceBrand: undefined,
+			trackRecursive(args) {
+				// nothing
+				return args;
+			}
+		});
 
 		originalErrorHandler = errorHandler.getUnexpectedErrorHandler();
 		setUnexpectedErrorHandler(() => { });
@@ -80,6 +91,7 @@ suite('ExtHostLanguageFeatures', function() {
 				lines: model.getValue().split(model.getEOL()),
 				BOM: '',
 				length: -1,
+				containsRTL: false,
 				options: {
 					tabSize: 4,
 					insertSpaces: true,
@@ -89,14 +101,16 @@ suite('ExtHostLanguageFeatures', function() {
 			},
 		});
 
-		const commands = new ExtHostCommands(threadService, null);
+		const heapService = new ExtHostHeapService();
+
+		const commands = new ExtHostCommands(threadService, null, heapService);
 		threadService.set(ExtHostContext.ExtHostCommands, commands);
 		threadService.setTestInstance(MainContext.MainThreadCommands, instantiationService.createInstance(MainThreadCommands));
 
 		const diagnostics = new ExtHostDiagnostics(threadService);
 		threadService.set(ExtHostContext.ExtHostDiagnostics, diagnostics);
 
-		extHost = new ExtHostLanguageFeatures(threadService, extHostDocuments, commands, diagnostics);
+		extHost = new ExtHostLanguageFeatures(threadService, extHostDocuments, commands, heapService, diagnostics);
 		threadService.set(ExtHostContext.ExtHostLanguageFeatures, extHost);
 
 		mainThread = <MainThreadLanguageFeatures>threadService.setTestInstance(MainContext.MainThreadLanguageFeatures, instantiationService.createInstance(MainThreadLanguageFeatures));
@@ -107,7 +121,7 @@ suite('ExtHostLanguageFeatures', function() {
 		model.dispose();
 	});
 
-	teardown(function() {
+	teardown(function () {
 		while (disposables.length) {
 			disposables.pop().dispose();
 		}
@@ -116,7 +130,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- outline
 
-	test('DocumentSymbols, register/deregister', function() {
+	test('DocumentSymbols, register/deregister', function () {
 		assert.equal(DocumentSymbolProviderRegistry.all(model).length, 0);
 		let d1 = extHost.registerDocumentSymbolProvider(defaultSelector, <vscode.DocumentSymbolProvider>{
 			provideDocumentSymbols() {
@@ -132,7 +146,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	});
 
-	test('DocumentSymbols, evil provider', function() {
+	test('DocumentSymbols, evil provider', function () {
 		disposables.push(extHost.registerDocumentSymbolProvider(defaultSelector, <vscode.DocumentSymbolProvider>{
 			provideDocumentSymbols(): any {
 				throw new Error('evil document symbol provider');
@@ -152,7 +166,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('DocumentSymbols, data conversion', function() {
+	test('DocumentSymbols, data conversion', function () {
 		disposables.push(extHost.registerDocumentSymbolProvider(defaultSelector, <vscode.DocumentSymbolProvider>{
 			provideDocumentSymbols(): any {
 				return [new types.SymbolInformation('test', types.SymbolKind.Field, new types.Range(0, 0, 0, 0))];
@@ -173,7 +187,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- code lens
 
-	test('CodeLens, evil provider', function() {
+	test('CodeLens, evil provider', function () {
 
 		disposables.push(extHost.registerCodeLensProvider(defaultSelector, <vscode.CodeLensProvider>{
 			provideCodeLenses(): any {
@@ -193,7 +207,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('CodeLens, do not resolve a resolved lens', function() {
+	test('CodeLens, do not resolve a resolved lens', function () {
 
 		disposables.push(extHost.registerCodeLensProvider(defaultSelector, <vscode.CodeLensProvider>{
 			provideCodeLenses(): any {
@@ -213,7 +227,7 @@ suite('ExtHostLanguageFeatures', function() {
 				let data = value[0];
 
 				return asWinJsPromise((token) => {
-					return data.support.resolveCodeLens(model, data.symbol, token);
+					return data.provider.resolveCodeLens(model, data.symbol, token);
 				}).then(symbol => {
 					assert.equal(symbol.command.id, 'id');
 					assert.equal(symbol.command.title, 'Title');
@@ -222,7 +236,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('CodeLens, missing command', function() {
+	test('CodeLens, missing command', function () {
 
 		disposables.push(extHost.registerCodeLensProvider(defaultSelector, <vscode.CodeLensProvider>{
 			provideCodeLenses() {
@@ -237,7 +251,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 				let data = value[0];
 				return asWinJsPromise((token) => {
-					return data.support.resolveCodeLens(model, data.symbol, token);
+					return data.provider.resolveCodeLens(model, data.symbol, token);
 				}).then(symbol => {
 
 					assert.equal(symbol.command.id, 'missing');
@@ -249,7 +263,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- definition
 
-	test('Definition, data conversion', function() {
+	test('Definition, data conversion', function () {
 
 		disposables.push(extHost.registerDefinitionProvider(defaultSelector, <vscode.DefinitionProvider>{
 			provideDefinition(): any {
@@ -268,7 +282,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Definition, one or many', function() {
+	test('Definition, one or many', function () {
 
 		disposables.push(extHost.registerDefinitionProvider(defaultSelector, <vscode.DefinitionProvider>{
 			provideDefinition(): any {
@@ -315,7 +329,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Definition, evil provider', function() {
+	test('Definition, evil provider', function () {
 
 		disposables.push(extHost.registerDefinitionProvider(defaultSelector, <vscode.DefinitionProvider>{
 			provideDefinition(): any {
@@ -338,7 +352,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- extra info
 
-	test('HoverProvider, word range at pos', function() {
+	test('HoverProvider, word range at pos', function () {
 
 		disposables.push(extHost.registerHoverProvider(defaultSelector, <vscode.HoverProvider>{
 			provideHover(): any {
@@ -356,7 +370,7 @@ suite('ExtHostLanguageFeatures', function() {
 	});
 
 
-	test('HoverProvider, given range', function() {
+	test('HoverProvider, given range', function () {
 
 		disposables.push(extHost.registerHoverProvider(defaultSelector, <vscode.HoverProvider>{
 			provideHover(): any {
@@ -400,7 +414,7 @@ suite('ExtHostLanguageFeatures', function() {
 	});
 
 
-	test('HoverProvider, evil provider', function() {
+	test('HoverProvider, evil provider', function () {
 
 		disposables.push(extHost.registerHoverProvider(defaultSelector, <vscode.HoverProvider>{
 			provideHover(): any {
@@ -424,7 +438,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- occurrences
 
-	test('Occurrences, data conversion', function() {
+	test('Occurrences, data conversion', function () {
 
 		disposables.push(extHost.registerDocumentHighlightProvider(defaultSelector, <vscode.DocumentHighlightProvider>{
 			provideDocumentHighlights(): any {
@@ -443,7 +457,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Occurrences, order 1/2', function() {
+	test('Occurrences, order 1/2', function () {
 
 		disposables.push(extHost.registerDocumentHighlightProvider(defaultSelector, <vscode.DocumentHighlightProvider>{
 			provideDocumentHighlights(): any {
@@ -467,7 +481,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Occurrences, order 2/2', function() {
+	test('Occurrences, order 2/2', function () {
 
 		disposables.push(extHost.registerDocumentHighlightProvider(defaultSelector, <vscode.DocumentHighlightProvider>{
 			provideDocumentHighlights(): any {
@@ -491,7 +505,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Occurrences, evil provider', function() {
+	test('Occurrences, evil provider', function () {
 
 		disposables.push(extHost.registerDocumentHighlightProvider(defaultSelector, <vscode.DocumentHighlightProvider>{
 			provideDocumentHighlights(): any {
@@ -541,7 +555,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('References, data conversion', function() {
+	test('References, data conversion', function () {
 
 		disposables.push(extHost.registerReferenceProvider(defaultSelector, <vscode.ReferenceProvider>{
 			provideReferences(): any {
@@ -562,7 +576,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('References, evil provider', function() {
+	test('References, evil provider', function () {
 
 		disposables.push(extHost.registerReferenceProvider(defaultSelector, <vscode.ReferenceProvider>{
 			provideReferences(): any {
@@ -586,7 +600,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- quick fix
 
-	test('Quick Fix, data conversion', function() {
+	test('Quick Fix, data conversion', function () {
 
 		disposables.push(extHost.registerCodeActionProvider(defaultSelector, <vscode.CodeActionProvider>{
 			provideCodeActions(): any {
@@ -610,7 +624,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Quick Fix, evil provider', function() {
+	test('Quick Fix, evil provider', function () {
 
 		disposables.push(extHost.registerCodeActionProvider(defaultSelector, <vscode.CodeActionProvider>{
 			provideCodeActions(): any {
@@ -632,7 +646,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- navigate types
 
-	test('Navigate types, evil provider', function() {
+	test('Navigate types, evil provider', function () {
 
 		disposables.push(extHost.registerWorkspaceSymbolProvider(<vscode.WorkspaceSymbolProvider>{
 			provideWorkspaceSymbols(): any {
@@ -648,15 +662,19 @@ suite('ExtHostLanguageFeatures', function() {
 
 		return threadService.sync().then(() => {
 
-			return getNavigateToItems('').then(value => {
+			return getWorkspaceSymbols('').then(value => {
 				assert.equal(value.length, 1);
+				const [first] = value;
+				const [, symbols] = first;
+				assert.equal(symbols.length, 1);
+				assert.equal(symbols[0].name, 'testing');
 			});
 		});
 	});
 
 	// --- rename
 
-	test('Rename, evil provider 1/2', function() {
+	test('Rename, evil provider 1/2', function () {
 
 		disposables.push(extHost.registerRenameProvider(defaultSelector, <vscode.RenameProvider>{
 			provideRenameEdits(): any {
@@ -674,7 +692,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Rename, evil provider 2/2', function() {
+	test('Rename, evil provider 2/2', function () {
 
 		disposables.push(extHost.registerRenameProvider('*', <vscode.RenameProvider>{
 			provideRenameEdits(): any {
@@ -698,7 +716,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Rename, ordering', function() {
+	test('Rename, ordering', function () {
 
 		disposables.push(extHost.registerRenameProvider('*', <vscode.RenameProvider>{
 			provideRenameEdits(): any {
@@ -725,7 +743,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- parameter hints
 
-	test('Parameter Hints, evil provider', function() {
+	test('Parameter Hints, evil provider', function () {
 
 		disposables.push(extHost.registerSignatureHelpProvider(defaultSelector, <vscode.SignatureHelpProvider>{
 			provideSignatureHelp(): any {
@@ -745,7 +763,7 @@ suite('ExtHostLanguageFeatures', function() {
 
 	// --- suggestions
 
-	test('Suggest, order 1/3', function() {
+	test('Suggest, order 1/3', function () {
 
 		disposables.push(extHost.registerCompletionItemProvider('*', <vscode.CompletionItemProvider>{
 			provideCompletionItems(): any {
@@ -760,16 +778,14 @@ suite('ExtHostLanguageFeatures', function() {
 		}, []));
 
 		return threadService.sync().then(() => {
-			return provideCompletionItems(model, new EditorPosition(1, 1)).then(value => {
-				assert.ok(value.length >= 1); // check for min because snippets and others contribute
-				let [first] = value;
-				assert.equal(first.suggestions.length, 1);
-				assert.equal(first.suggestions[0].codeSnippet, 'testing2');
+			return provideSuggestionItems(model, new EditorPosition(1, 1), 'none').then(value => {
+				assert.equal(value.length, 1);
+				assert.equal(value[0].suggestion.insertText, 'testing2');
 			});
 		});
 	});
 
-	test('Suggest, order 2/3', function() {
+	test('Suggest, order 2/3', function () {
 
 		disposables.push(extHost.registerCompletionItemProvider('*', <vscode.CompletionItemProvider>{
 			provideCompletionItems(): any {
@@ -784,11 +800,9 @@ suite('ExtHostLanguageFeatures', function() {
 		}, []));
 
 		return threadService.sync().then(() => {
-			return provideCompletionItems(model, new EditorPosition(1, 1)).then(value => {
-				assert.ok(value.length >= 1);
-				let [first] = value;
-				assert.equal(first.suggestions.length, 1);
-				assert.equal(first.suggestions[0].codeSnippet, 'weak-selector');
+			return provideSuggestionItems(model, new EditorPosition(1, 1), 'none').then(value => {
+				assert.equal(value.length, 1);
+				assert.equal(value[0].suggestion.insertText, 'weak-selector');
 			});
 		});
 	});
@@ -808,17 +822,15 @@ suite('ExtHostLanguageFeatures', function() {
 		}, []));
 
 		return threadService.sync().then(() => {
-			return provideCompletionItems(model, new EditorPosition(1, 1)).then(value => {
-				assert.ok(value.length >= 2);
-				let [first, second] = value;
-				assert.equal(first.suggestions.length, 1);
-				assert.equal(first.suggestions[0].codeSnippet, 'strong-2'); // last wins
-				assert.equal(second.suggestions[0].codeSnippet, 'strong-1');
+			return provideSuggestionItems(model, new EditorPosition(1, 1), 'none').then(value => {
+				assert.equal(value.length, 2);
+				assert.equal(value[0].suggestion.insertText, 'strong-1'); // sort by label
+				assert.equal(value[1].suggestion.insertText, 'strong-2');
 			});
 		});
 	});
 
-	test('Suggest, evil provider', function() {
+	test('Suggest, evil provider', function () {
 
 		disposables.push(extHost.registerCompletionItemProvider(defaultSelector, <vscode.CompletionItemProvider>{
 			provideCompletionItems(): any {
@@ -835,34 +847,34 @@ suite('ExtHostLanguageFeatures', function() {
 
 		return threadService.sync().then(() => {
 
-			return provideCompletionItems(model, new EditorPosition(1, 1)).then(value => {
-				assert.equal(value[0].incomplete, undefined);
+			return provideSuggestionItems(model, new EditorPosition(1, 1), 'none').then(value => {
+				assert.equal(value[0].container.incomplete, undefined);
 			});
 		});
 	});
 
-	test('Suggest, CompletionList', function() {
+	test('Suggest, CompletionList', function () {
 
 		disposables.push(extHost.registerCompletionItemProvider(defaultSelector, <vscode.CompletionItemProvider>{
 			provideCompletionItems(): any {
-				return new types.CompletionList([<any> new types.CompletionItem('hello')], true);
+				return new types.CompletionList([<any>new types.CompletionItem('hello')], true);
 			}
 		}, []));
 
 		return threadService.sync().then(() => {
 
-			provideCompletionItems(model, new EditorPosition(1, 1)).then(value => {
-				assert.equal(value[0].incomplete, true);
+			provideSuggestionItems(model, new EditorPosition(1, 1), 'none').then(value => {
+				assert.equal(value[0].container.incomplete, true);
 			});
 		});
 	});
 
 	// --- format
 
-	test('Format Doc, data conversion', function() {
+	test('Format Doc, data conversion', function () {
 		disposables.push(extHost.registerDocumentFormattingEditProvider(defaultSelector, <vscode.DocumentFormattingEditProvider>{
 			provideDocumentFormattingEdits(): any {
-				return [new types.TextEdit(new types.Range(0, 0, 1, 1), 'testing')];
+				return [new types.TextEdit(new types.Range(0, 0, 0, 0), 'testing')];
 			}
 		}));
 
@@ -871,12 +883,12 @@ suite('ExtHostLanguageFeatures', function() {
 				assert.equal(value.length, 1);
 				let [first] = value;
 				assert.equal(first.text, 'testing');
-				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 2 });
+				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
 			});
 		});
 	});
 
-	test('Format Doc, evil provider', function() {
+	test('Format Doc, evil provider', function () {
 		disposables.push(extHost.registerDocumentFormattingEditProvider(defaultSelector, <vscode.DocumentFormattingEditProvider>{
 			provideDocumentFormattingEdits(): any {
 				throw new Error('evil');
@@ -884,14 +896,37 @@ suite('ExtHostLanguageFeatures', function() {
 		}));
 
 		return threadService.sync().then(() => {
-			return getDocumentFormattingEdits(model, { insertSpaces: true, tabSize: 4 }).then(_ => { throw new Error();}, err => {  });
+			return getDocumentFormattingEdits(model, { insertSpaces: true, tabSize: 4 });
 		});
 	});
 
-	test('Format Range, data conversion', function() {
+	test('Format Doc, order', function () {
+		disposables.push(extHost.registerDocumentFormattingEditProvider(defaultSelector, <vscode.DocumentFormattingEditProvider>{
+			provideDocumentFormattingEdits(): any {
+				return [new types.TextEdit(new types.Range(0, 0, 0, 0), 'testing')];
+			}
+		}));
+
+		disposables.push(extHost.registerDocumentFormattingEditProvider(defaultSelector, <vscode.DocumentFormattingEditProvider>{
+			provideDocumentFormattingEdits(): any {
+				return undefined;
+			}
+		}));
+
+		return threadService.sync().then(() => {
+			return getDocumentFormattingEdits(model, { insertSpaces: true, tabSize: 4 }).then(value => {
+				assert.equal(value.length, 1);
+				let [first] = value;
+				assert.equal(first.text, 'testing');
+				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
+			});
+		});
+	});
+
+	test('Format Range, data conversion', function () {
 		disposables.push(extHost.registerDocumentRangeFormattingEditProvider(defaultSelector, <vscode.DocumentRangeFormattingEditProvider>{
 			provideDocumentRangeFormattingEdits(): any {
-				return [new types.TextEdit(new types.Range(0, 0, 1, 1), 'testing')];
+				return [new types.TextEdit(new types.Range(0, 0, 0, 0), 'testing')];
 			}
 		}));
 
@@ -900,15 +935,15 @@ suite('ExtHostLanguageFeatures', function() {
 				assert.equal(value.length, 1);
 				let [first] = value;
 				assert.equal(first.text, 'testing');
-				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 2 });
+				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
 			});
 		});
 	});
 
-	test('Format Range, + format_doc', function() {
+	test('Format Range, + format_doc', function () {
 		disposables.push(extHost.registerDocumentRangeFormattingEditProvider(defaultSelector, <vscode.DocumentRangeFormattingEditProvider>{
 			provideDocumentRangeFormattingEdits(): any {
-				return [new types.TextEdit(new types.Range(0, 0, 1, 1), 'range')];
+				return [new types.TextEdit(new types.Range(0, 0, 0, 0), 'range')];
 			}
 		}));
 		disposables.push(extHost.registerDocumentFormattingEditProvider(defaultSelector, <vscode.DocumentFormattingEditProvider>{
@@ -925,7 +960,7 @@ suite('ExtHostLanguageFeatures', function() {
 		});
 	});
 
-	test('Format Range, evil provider', function() {
+	test('Format Range, evil provider', function () {
 		disposables.push(extHost.registerDocumentRangeFormattingEditProvider(defaultSelector, <vscode.DocumentRangeFormattingEditProvider>{
 			provideDocumentRangeFormattingEdits(): any {
 				throw new Error('evil');
@@ -933,11 +968,11 @@ suite('ExtHostLanguageFeatures', function() {
 		}));
 
 		return threadService.sync().then(() => {
-			return getDocumentRangeFormattingEdits(model, new EditorRange(1, 1, 1, 1), { insertSpaces: true, tabSize: 4 }).then(_ => { throw new Error(); }, err => { });
+			return getDocumentRangeFormattingEdits(model, new EditorRange(1, 1, 1, 1), { insertSpaces: true, tabSize: 4 });
 		});
 	});
 
-	test('Format on Type, data conversion', function() {
+	test('Format on Type, data conversion', function () {
 
 		disposables.push(extHost.registerOnTypeFormattingEditProvider(defaultSelector, <vscode.OnTypeFormattingEditProvider>{
 			provideOnTypeFormattingEdits(): any {
@@ -952,6 +987,50 @@ suite('ExtHostLanguageFeatures', function() {
 
 				assert.equal(first.text, ';');
 				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 });
+			});
+		});
+	});
+
+	test('Links, data conversion', function () {
+
+		disposables.push(extHost.registerDocumentLinkProvider(defaultSelector, <vscode.DocumentLinkProvider>{
+			provideDocumentLinks() {
+				return [new types.DocumentLink(new types.Range(0, 0, 1, 1), types.Uri.parse('foo:bar#3'))];
+			}
+		}));
+
+		return threadService.sync().then(() => {
+			return getLinks(model).then(value => {
+				assert.equal(value.length, 1);
+				let [first] = value;
+
+				assert.equal(first.url, 'foo:bar#3');
+				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 2 });
+			});
+		});
+	});
+
+	test('Links, evil provider', function () {
+
+		disposables.push(extHost.registerDocumentLinkProvider(defaultSelector, <vscode.DocumentLinkProvider>{
+			provideDocumentLinks() {
+				return [new types.DocumentLink(new types.Range(0, 0, 1, 1), types.Uri.parse('foo:bar#3'))];
+			}
+		}));
+
+		disposables.push(extHost.registerDocumentLinkProvider(defaultSelector, <vscode.DocumentLinkProvider>{
+			provideDocumentLinks(): any {
+				throw new Error();
+			}
+		}));
+
+		return threadService.sync().then(() => {
+			return getLinks(model).then(value => {
+				assert.equal(value.length, 1);
+				let [first] = value;
+
+				assert.equal(first.url, 'foo:bar#3');
+				assert.deepEqual(first.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 2 });
 			});
 		});
 	});

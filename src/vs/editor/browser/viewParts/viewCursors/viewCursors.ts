@@ -7,13 +7,13 @@
 
 import 'vs/css!./viewCursors';
 import * as editorCommon from 'vs/editor/common/editorCommon';
-import {ClassNames} from 'vs/editor/browser/editorBrowser';
-import {ViewPart} from 'vs/editor/browser/view/viewPart';
-import {ViewCursor} from 'vs/editor/browser/viewParts/viewCursors/viewCursor';
-import {ViewContext} from 'vs/editor/common/view/viewContext';
-import {IRenderingContext, IRestrictedRenderingContext} from 'vs/editor/common/view/renderingContext';
-import {FastDomNode, createFastDomNode} from 'vs/base/browser/styleMutator';
-import {TimeoutTimer, IntervalTimer} from 'vs/base/common/async';
+import { ClassNames } from 'vs/editor/browser/editorBrowser';
+import { ViewPart } from 'vs/editor/browser/view/viewPart';
+import { IViewCursorRenderData, ViewCursor } from 'vs/editor/browser/viewParts/viewCursors/viewCursor';
+import { ViewContext } from 'vs/editor/common/view/viewContext';
+import { IRenderingContext, IRestrictedRenderingContext } from 'vs/editor/common/view/renderingContext';
+import { FastDomNode, createFastDomNode } from 'vs/base/browser/styleMutator';
+import { TimeoutTimer, IntervalTimer } from 'vs/base/common/async';
 import * as browsers from 'vs/base/browser/browser';
 
 const ANIMATIONS_SUPPORTED = !browsers.isIE9;
@@ -25,7 +25,6 @@ export class ViewCursors extends ViewPart {
 	private _readOnly: boolean;
 	private _cursorBlinking: editorCommon.TextEditorCursorBlinkingStyle;
 	private _cursorStyle: editorCommon.TextEditorCursorStyle;
-	private _canUseTranslate3d: boolean;
 
 	private _isVisible: boolean;
 
@@ -39,6 +38,7 @@ export class ViewCursors extends ViewPart {
 
 	private _primaryCursor: ViewCursor;
 	private _secondaryCursors: ViewCursor[];
+	private _renderData: IViewCursorRenderData[];
 
 	constructor(context: ViewContext) {
 		super(context);
@@ -46,10 +46,10 @@ export class ViewCursors extends ViewPart {
 		this._readOnly = this._context.configuration.editor.readOnly;
 		this._cursorBlinking = this._context.configuration.editor.viewInfo.cursorBlinking;
 		this._cursorStyle = this._context.configuration.editor.viewInfo.cursorStyle;
-		this._canUseTranslate3d = context.configuration.editor.viewInfo.canUseTranslate3d;
 
 		this._primaryCursor = new ViewCursor(this._context, false);
 		this._secondaryCursors = [];
+		this._renderData = [];
 
 		this._domNode = createFastDomNode(document.createElement('div'));
 		this._updateDomClassName();
@@ -100,7 +100,12 @@ export class ViewCursors extends ViewPart {
 	}
 	public onModelTokensChanged(e: editorCommon.IViewTokensChangedEvent): boolean {
 		var shouldRender = (position: editorCommon.IPosition) => {
-			return e.fromLineNumber <= position.lineNumber && position.lineNumber <= e.toLineNumber;
+			for (let i = 0, len = e.ranges.length; i < len; i++) {
+				if (e.ranges[i].fromLineNumber <= position.lineNumber && position.lineNumber <= e.ranges[i].toLineNumber) {
+					return true;
+				}
+			}
+			return false;
 		};
 		if (shouldRender(this._primaryCursor.getPosition())) {
 			return true;
@@ -152,9 +157,6 @@ export class ViewCursors extends ViewPart {
 		}
 		if (e.viewInfo.cursorStyle) {
 			this._cursorStyle = this._context.configuration.editor.viewInfo.cursorStyle;
-		}
-		if (e.viewInfo.canUseTranslate3d) {
-			this._canUseTranslate3d = this._context.configuration.editor.viewInfo.canUseTranslate3d;
 		}
 
 		this._primaryCursor.onConfigurationChanged(e);
@@ -314,15 +316,17 @@ export class ViewCursors extends ViewPart {
 	}
 
 	public render(ctx: IRestrictedRenderingContext): void {
-		this._primaryCursor.render(ctx);
+		this._renderData = [];
+		this._renderData.push(this._primaryCursor.render(ctx));
 		for (var i = 0, len = this._secondaryCursors.length; i < len; i++) {
-			this._secondaryCursors[i].render(ctx);
+			this._renderData.push(this._secondaryCursors[i].render(ctx));
 		}
 
-		if (this._canUseTranslate3d) {
-			this._domNode.setTransform('translate3d(0px, 0px, 0px)');
-		} else {
-			this._domNode.setTransform('');
-		}
+		// Keep only data of cursors that are visible
+		this._renderData = this._renderData.filter(d => !!d);
+	}
+
+	public getLastRenderData(): IViewCursorRenderData[] {
+		return this._renderData;
 	}
 }

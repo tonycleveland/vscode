@@ -5,12 +5,13 @@
 
 'use strict';
 
-import {LinkedMap, LRUCache} from 'vs/base/common/map';
+import { BoundedLinkedMap, LRUCache, LinkedMap, TrieMap } from 'vs/base/common/map';
 import * as assert from 'assert';
 
 suite('Map', () => {
+
 	test('LinkedMap - basics', function () {
-		const map = new LinkedMap<any>();
+		const map = new LinkedMap<string, any>();
 
 		assert.equal(map.size, 0);
 
@@ -64,10 +65,75 @@ suite('Map', () => {
 		assert.ok(!map.get('2'));
 		assert.ok(!map.get('3'));
 		assert.ok(!map.has('1'));
+
+		const res = map.getOrSet('foo', 'bar');
+		assert.equal(map.get('foo'), res);
+		assert.equal(res, 'bar');
 	});
 
-	test('LinkedMap - bounded', function () {
-		const map = new LinkedMap<number>(5);
+	test('BoundedLinkedMap - basics', function () {
+		const map = new BoundedLinkedMap<any>();
+
+		assert.equal(map.size, 0);
+
+		map.set('1', 1);
+		map.set('2', '2');
+		map.set('3', true);
+
+		const obj = Object.create(null);
+		map.set('4', obj);
+
+		const date = Date.now();
+		map.set('5', date);
+
+		assert.equal(map.size, 5);
+		assert.equal(map.get('1'), 1);
+		assert.equal(map.get('2'), '2');
+		assert.equal(map.get('3'), true);
+		assert.equal(map.get('4'), obj);
+		assert.equal(map.get('5'), date);
+		assert.ok(!map.get('6'));
+
+		map.delete('6');
+		assert.equal(map.size, 5);
+		assert.equal(map.delete('1'), 1);
+		assert.equal(map.delete('2'), '2');
+		assert.equal(map.delete('3'), true);
+		assert.equal(map.delete('4'), obj);
+		assert.equal(map.delete('5'), date);
+
+		assert.equal(map.size, 0);
+		assert.ok(!map.get('5'));
+		assert.ok(!map.get('4'));
+		assert.ok(!map.get('3'));
+		assert.ok(!map.get('2'));
+		assert.ok(!map.get('1'));
+
+		map.set('1', 1);
+		map.set('2', '2');
+		assert.ok(map.set('3', true)); // adding an element returns true
+		assert.ok(!map.set('3', true)); // adding it again returns false
+
+		assert.ok(map.has('1'));
+		assert.equal(map.get('1'), 1);
+		assert.equal(map.get('2'), '2');
+		assert.equal(map.get('3'), true);
+
+		map.clear();
+
+		assert.equal(map.size, 0);
+		assert.ok(!map.get('1'));
+		assert.ok(!map.get('2'));
+		assert.ok(!map.get('3'));
+		assert.ok(!map.has('1'));
+
+		const res = map.getOrSet('foo', 'bar');
+		assert.equal(map.get('foo'), res);
+		assert.equal(res, 'bar');
+	});
+
+	test('BoundedLinkedMap - bounded', function () {
+		const map = new BoundedLinkedMap<number>(5);
 
 		assert.equal(0, map.size);
 
@@ -135,8 +201,8 @@ suite('Map', () => {
 		assert.equal(map.get('14'), 14);
 	});
 
-	test('LinkedMap - bounded with ratio', function () {
-		const map = new LinkedMap<number>(6, 0.5);
+	test('BoundedLinkedMap - bounded with ratio', function () {
+		const map = new BoundedLinkedMap<number>(6, 0.5);
 
 		assert.equal(0, map.size);
 
@@ -204,6 +270,24 @@ suite('Map', () => {
 		assert.equal(cache.get('6'), 6);
 		assert.ok(!cache.has('3'));
 		assert.ok(!cache.has('4'));
+	});
+
+
+	test('TrieMap - basics', function () {
+
+		const map = new TrieMap<number>(TrieMap.PathSplitter);
+
+		map.insert('/user/foo/bar', 1);
+		map.insert('/user/foo', 2);
+		map.insert('/user/foo/flip/flop', 3);
+
+		assert.equal(map.findSubstr('/user/bar'), undefined);
+		assert.equal(map.findSubstr('/user/foo'), 2);
+		assert.equal(map.findSubstr('\\user\\foo'), 2);
+		assert.equal(map.findSubstr('/user/foo/ba'), 2);
+		assert.equal(map.findSubstr('/user/foo/far/boo'), 2);
+		assert.equal(map.findSubstr('/user/foo/bar'), 1);
+		assert.equal(map.findSubstr('/user/foo/bar/far/boo'), 1);
 
 	});
 });

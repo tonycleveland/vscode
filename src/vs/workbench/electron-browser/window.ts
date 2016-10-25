@@ -7,39 +7,19 @@
 
 import platform = require('vs/base/common/platform');
 import URI from 'vs/base/common/uri';
+import { TPromise } from 'vs/base/common/winjs.base';
+import { stat } from 'vs/base/node/pfs';
 import DOM = require('vs/base/browser/dom');
 import DND = require('vs/base/browser/dnd');
-import {Builder, $} from 'vs/base/browser/builder';
-import {Identifiers} from 'vs/workbench/common/constants';
-import {asFileEditorInput} from 'vs/workbench/common/editor';
-import {IViewletService} from 'vs/workbench/services/viewlet/common/viewletService';
-import {IWorkbenchEditorService} from 'vs/workbench/services/editor/common/editorService';
-import {IStorageService} from 'vs/platform/storage/common/storage';
-import {IEventService} from 'vs/platform/event/common/event';
-import {IWorkspaceContextService} from 'vs/platform/workspace/common/workspace';
-import {IEditorGroupService} from 'vs/workbench/services/group/common/groupService';
+import { Builder, $ } from 'vs/base/browser/builder';
+import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { asFileEditorInput } from 'vs/workbench/common/editor';
+import { IWorkbenchEditorService } from 'vs/workbench/services/editor/common/editorService';
+import { IEditorGroupService } from 'vs/workbench/services/group/common/groupService';
 
-import {ipcRenderer as ipc, shell, remote} from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
+import { ipcRenderer as ipc, shell, remote } from 'electron';
 
 const dialog = remote.dialog;
-
-export interface IWindowConfiguration {
-	window: {
-		openFilesInNewWindow: boolean;
-		reopenFolders: string;
-		restoreFullscreen: boolean;
-		zoomLevel: number;
-	};
-}
-
-enum DraggedFileType {
-	UNKNOWN,
-	FILE,
-	EXTENSION,
-	FOLDER
-}
 
 export class ElectronWindow {
 	private win: Electron.BrowserWindow;
@@ -48,12 +28,9 @@ export class ElectronWindow {
 	constructor(
 		win: Electron.BrowserWindow,
 		shellContainer: HTMLElement,
-		@IWorkspaceContextService private contextService: IWorkspaceContextService,
-		@IEventService private eventService: IEventService,
-		@IStorageService private storageService: IStorageService,
 		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
 		@IEditorGroupService private editorGroupService: IEditorGroupService,
-		@IViewletService private viewletService: IViewletService
+		@IPartService private partService: IPartService
 	) {
 		this.win = win;
 		this.windowId = win.id;
@@ -65,7 +42,7 @@ export class ElectronWindow {
 		// React to editor input changes (Mac only)
 		if (platform.platform === platform.Platform.Mac) {
 			this.editorGroupService.onEditorsChanged(() => {
-				let fileInput = asFileEditorInput(this.editorService.getActiveEditorInput(), true);
+				const fileInput = asFileEditorInput(this.editorService.getActiveEditorInput(), true);
 				let representedFilename = '';
 				if (fileInput) {
 					representedFilename = fileInput.getResource().fsPath;
@@ -94,26 +71,36 @@ export class ElectronWindow {
 			if (!draggedExternalResources) {
 				draggedExternalResources = DND.extractResources(e, true /* external only */);
 
-				// Show Code wide overlay if we detect a Folder or Extension to be dragged
-				if (draggedExternalResources.some(r => {
-					const kind = this.getFileKind(r);
+				// Find out if folders are dragged and show the appropiate feedback then
+				this.includesFolder(draggedExternalResources).done(includesFolder => {
+					if (includesFolder) {
+						dropOverlay = $(window.document.getElementById(this.partService.getWorkbenchElementId()))
+							.div({ id: 'monaco-workbench-drop-overlay' })
+							.on(DOM.EventType.DROP, (e: DragEvent) => {
+								DOM.EventHelper.stop(e, true);
 
-					return kind === DraggedFileType.FOLDER || kind === DraggedFileType.EXTENSION;
-				})) {
-					dropOverlay = $(window.document.getElementById(Identifiers.WORKBENCH_CONTAINER))
-						.div({ id: 'monaco-workbench-drop-overlay' })
-						.on(DOM.EventType.DROP, (e: DragEvent) => {
-							DOM.EventHelper.stop(e, true);
+								this.focus(); // make sure this window has focus so that the open call reaches the right window!
+								ipc.send('vscode:windowOpen', draggedExternalResources.map(r => r.fsPath)); // handled from browser process
 
-							this.focus(); // make sure this window has focus so that the open call reaches the right window!
-							ipc.send('vscode:windowOpen', draggedExternalResources.map(r => r.fsPath)); // handled from browser process
-
-							cleanUp();
-						})
-						.on([DOM.EventType.DRAG_LEAVE, DOM.EventType.DRAG_END], () => {
-							cleanUp();
-						});
-				}
+								cleanUp();
+							})
+							.on([DOM.EventType.DRAG_LEAVE, DOM.EventType.DRAG_END], () => {
+								cleanUp();
+							}).once(DOM.EventType.MOUSE_OVER, () => {
+								// Under some circumstances we have seen reports where the drop overlay is not being
+								// cleaned up and as such the editor area remains under the overlay so that you cannot
+								// type into the editor anymore. This seems related to using VMs and DND via host and
+								// guest OS, though some users also saw it without VMs.
+								// To protect against this issue we always destroy the overlay as soon as we detect a
+								// mouse event over it. The delay is used to guarantee we are not interfering with the
+								// actual DROP event that can also trigger a mouse over event.
+								// See also: https://github.com/Microsoft/vscode/issues/10970
+								setTimeout(() => {
+									cleanUp();
+								}, 300);
+							});
+					}
+				});
 			}
 		});
 
@@ -147,19 +134,10 @@ export class ElectronWindow {
 		};
 	}
 
-	private getFileKind(resource: URI): DraggedFileType {
-		if (path.extname(resource.fsPath) === '.vsix') {
-			return DraggedFileType.EXTENSION;
-		}
-
-		let kind = DraggedFileType.UNKNOWN;
-		try {
-			kind = fs.statSync(resource.fsPath).isDirectory() ? DraggedFileType.FOLDER : DraggedFileType.FILE;
-		} catch (error) {
-			// Do not fail in DND handler
-		}
-
-		return kind;
+	private includesFolder(resources: URI[]): TPromise<boolean> {
+		return TPromise.join(resources.map(resource => {
+			return stat(resource.fsPath).then(stats => stats.isDirectory() ? true : false, error => false);
+		})).then(res => res.some(res => !!res));
 	}
 
 	public openNew(): void {

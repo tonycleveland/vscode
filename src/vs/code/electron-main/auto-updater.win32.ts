@@ -14,11 +14,10 @@ import { spawn } from 'child_process';
 import { mkdirp } from 'vs/base/node/extfs';
 import { isString } from 'vs/base/common/types';
 import { Promise, TPromise } from 'vs/base/common/winjs.base';
-import { download, json } from 'vs/base/node/request';
-import { getProxyAgent } from 'vs/base/node/proxy';
-import { ISettingsService  } from 'vs/code/electron-main/settings';
+import { download, asJson } from 'vs/base/node/request';
 import { ILifecycleService } from 'vs/code/electron-main/lifecycle';
-import { IEnvironmentService } from 'vs/code/electron-main/env';
+import { IRequestService } from 'vs/platform/request/common/request';
+import product from 'vs/platform/product';
 
 export interface IUpdate {
 	url: string;
@@ -35,8 +34,7 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 
 	constructor(
 		@ILifecycleService private lifecycleService: ILifecycleService,
-		@IEnvironmentService private envService: IEnvironmentService,
-		@ISettingsService private settingsService: ISettingsService
+		@IRequestService private requestService: IRequestService
 	) {
 		super();
 
@@ -45,7 +43,7 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 	}
 
 	get cachePath(): TPromise<string> {
-		let result = path.join(tmpdir(), 'vscode-update');
+		const result = path.join(tmpdir(), 'vscode-update');
 		return new TPromise<string>((c, e) => mkdirp(result, null, err => err ? e(err) : c(result)));
 	}
 
@@ -64,11 +62,8 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 
 		this.emit('checking-for-update');
 
-		const proxyUrl = this.settingsService.getValue<string>('http.proxy');
-		const strictSSL = this.settingsService.getValue('http.proxyStrictSSL', true);
-		const agent = getProxyAgent(this.url, { proxyUrl, strictSSL });
-
-		this.currentRequest = json<IUpdate>({ url: this.url, agent })
+		this.currentRequest = this.requestService.request({ url: this.url })
+			.then<IUpdate>(asJson)
 			.then(update => {
 				if (!update || !update.url || !update.version) {
 					this.emit('update-not-available');
@@ -87,9 +82,9 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 							const url = update.url;
 							const hash = update.hash;
 							const downloadPath = `${updatePackagePath}.tmp`;
-							const agent = getProxyAgent(url, { proxyUrl, strictSSL });
 
-							return download(downloadPath, { url, agent, strictSSL })
+							return this.requestService.request({ url })
+								.then(context => download(downloadPath, context))
 								.then(hash ? () => checksum(downloadPath, update.hash) : () => null)
 								.then(() => pfs.rename(downloadPath, updatePackagePath))
 								.then(() => updatePackagePath);
@@ -118,7 +113,7 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 	}
 
 	private getUpdatePackagePath(version: string): TPromise<string> {
-		return this.cachePath.then(cachePath => path.join(cachePath, `CodeSetup-${this.envService.quality}-${version}.exe`));
+		return this.cachePath.then(cachePath => path.join(cachePath, `CodeSetup-${product.quality}-${version}.exe`));
 	}
 
 	private quitAndUpdate(updatePackagePath: string): void {
@@ -135,7 +130,7 @@ export class Win32AutoUpdaterImpl extends EventEmitter {
 	}
 
 	private cleanup(exceptVersion: string = null): Promise {
-		const filter = exceptVersion ? one => !(new RegExp(`${this.envService.quality}-${exceptVersion}\\.exe$`).test(one)) : () => true;
+		const filter = exceptVersion ? one => !(new RegExp(`${product.quality}-${exceptVersion}\\.exe$`).test(one)) : () => true;
 
 		return this.cachePath
 			.then(cachePath => pfs.readdir(cachePath)

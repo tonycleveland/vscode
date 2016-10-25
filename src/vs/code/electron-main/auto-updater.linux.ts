@@ -8,10 +8,9 @@
 import { EventEmitter } from 'events';
 import { isString } from 'vs/base/common/types';
 import { Promise } from 'vs/base/common/winjs.base';
-import { json } from 'vs/base/node/request';
-import { getProxyAgent } from 'vs/base/node/proxy';
-import { ISettingsService } from 'vs/code/electron-main/settings';
-import { IEnvironmentService } from 'vs/code/electron-main/env';
+import { asJson } from 'vs/base/node/request';
+import { IRequestService } from 'vs/platform/request/common/request';
+import product from 'vs/platform/product';
 
 export interface IUpdate {
 	url: string;
@@ -26,8 +25,7 @@ export class LinuxAutoUpdaterImpl extends EventEmitter {
 	private currentRequest: Promise;
 
 	constructor(
-		@IEnvironmentService private envService: IEnvironmentService,
-		@ISettingsService private settingsService: ISettingsService
+		@IRequestService private requestService: IRequestService
 	) {
 		super();
 
@@ -50,16 +48,13 @@ export class LinuxAutoUpdaterImpl extends EventEmitter {
 
 		this.emit('checking-for-update');
 
-		const proxyUrl = this.settingsService.getValue<string>('http.proxy');
-		const strictSSL = this.settingsService.getValue('http.proxyStrictSSL', true);
-		const agent = getProxyAgent(this.url, { proxyUrl, strictSSL });
-
-		this.currentRequest = json<IUpdate>({ url: this.url, agent })
+		this.currentRequest = this.requestService.request({ url: this.url })
+			.then<IUpdate>(asJson)
 			.then(update => {
 				if (!update || !update.url || !update.version) {
 					this.emit('update-not-available');
 				} else {
-					this.emit('update-available', null, this.envService.product.downloadUrl);
+					this.emit('update-available', null, product.downloadUrl, update.version);
 				}
 			})
 			.then(null, e => {

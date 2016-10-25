@@ -5,13 +5,12 @@
 'use strict';
 
 import * as assert from 'assert';
-import {Brackets} from 'vs/editor/common/modes/supports/electricCharacter';
-import {createLineContextFromTokenText} from 'vs/editor/test/common/modesTestUtils';
+import { Brackets } from 'vs/editor/common/modes/supports/electricCharacter';
+import { createLineContextFromTokenText } from 'vs/editor/test/common/modesTestUtils';
 
 suite('Editor Modes - Auto Indentation', () => {
 	test('Doc comments', () => {
-		var brackets = new Brackets('test', null,
-			{ scope: 'doc', open: '/**', lineStart: ' * ', close: ' */' });
+		var brackets = new Brackets('test', null, [{ open: '/**', close: ' */' }]);
 
 		assert.equal(brackets.onElectricCharacter(createLineContextFromTokenText([
 			{ text: '/**', type: 'doc' },

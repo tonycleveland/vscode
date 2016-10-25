@@ -6,7 +6,7 @@
 'use strict';
 
 export interface Key {
-	toString():string;
+	toString(): string;
 }
 
 export interface Entry<K, T> {
@@ -20,7 +20,7 @@ export interface Entry<K, T> {
  * A simple map to store value by a key object. Key can be any object that has toString() function to get
  * string value of the key.
  */
-export class SimpleMap<K extends Key, T> {
+export class LinkedMap<K extends Key, T> {
 
 	protected map: { [key: string]: Entry<K, T> };
 	protected _size: number;
@@ -38,6 +38,17 @@ export class SimpleMap<K extends Key, T> {
 		const value = this.peek(k);
 
 		return value ? value : null;
+	}
+
+	public getOrSet(k: K, t: T): T {
+		const res = this.get(k);
+		if (res) {
+			return res;
+		}
+
+		this.set(k, t);
+
+		return t;
 	}
 
 	public keys(): K[] {
@@ -75,7 +86,7 @@ export class SimpleMap<K extends Key, T> {
 	}
 
 	public delete(k: K): T {
-		let value:T= this.get(k);
+		let value: T = this.get(k);
 		if (value) {
 			this.pop(k);
 			return value;
@@ -104,7 +115,7 @@ export class SimpleMap<K extends Key, T> {
 	}
 
 	protected peek(k: K): T {
-		const entry= this.map[k.toString()];
+		const entry = this.map[k.toString()];
 		return entry ? entry.value : null;
 	}
 }
@@ -114,7 +125,7 @@ export class SimpleMap<K extends Key, T> {
  * the cache will remove the entry that was last recently added. Or, if a ratio is provided below 1,
  * all elements will be removed until the ratio is full filled (e.g. 0.75 to remove 25% of old elements).
  */
-export class LinkedMap<T> {
+export class BoundedLinkedMap<T> {
 	protected map: { [key: string]: Entry<string, T> };
 	private head: Entry<string, T>;
 	private tail: Entry<string, T>;
@@ -150,6 +161,17 @@ export class LinkedMap<T> {
 		const entry = this.map[key];
 
 		return entry ? entry.value : null;
+	}
+
+	public getOrSet(k: string, t: T): T {
+		const res = this.get(k);
+		if (res) {
+			return res;
+		}
+
+		this.set(k, t);
+
+		return t;
 	}
 
 	public delete(key: string): T {
@@ -252,7 +274,7 @@ export class LinkedMap<T> {
  * maximum number of elements in the cache, it helps to remove those
  * entries from the cache that are LRU.
  */
-export class LRUCache<T> extends LinkedMap<T> {
+export class LRUCache<T> extends BoundedLinkedMap<T> {
 
 	constructor(limit: number) {
 		super(limit);
@@ -272,5 +294,77 @@ export class LRUCache<T> extends LinkedMap<T> {
 
 
 		return null;
+	}
+}
+
+// --- trie'ish datastructure
+
+interface Node<E> {
+	element?: E;
+	children: { [key: string]: Node<E> };
+}
+
+/**
+ * A trie map that allows for fast look up when keys are substrings
+ * to the actual search keys (dir/subdir-problem).
+ */
+export class TrieMap<E> {
+
+	static PathSplitter = s => s.split(/[\\/]/);
+
+	private _splitter: (s: string) => string[];
+	private _root: Node<E> = { children: Object.create(null) };
+
+	constructor(splitter: (s: string) => string[]) {
+		this._splitter = splitter;
+	}
+
+	insert(path: string, element: E): void {
+		const parts = this._splitter(path);
+		let i = 0;
+
+		// find insertion node
+		let node = this._root;
+		for (; i < parts.length; i++) {
+			let child = node.children[parts[i]];
+			if (child) {
+				node = child;
+				continue;
+			}
+			break;
+		}
+
+		// create new nodes
+		let newNode: Node<E>;
+		for (; i < parts.length; i++) {
+			newNode = { children: Object.create(null) };
+			node.children[parts[i]] = newNode;
+			node = newNode;
+		}
+
+		node.element = element;
+	}
+
+	findSubstr(path: string): E {
+		const parts = this._splitter(path);
+
+		let lastNode: Node<E>;
+		let {children} = this._root;
+		for (const part of parts) {
+			const node = children[part];
+			if (!node) {
+				break;
+			}
+			if (node.element) {
+				lastNode = node;
+			}
+			children = node.children;
+		}
+
+		// return the last matching node
+		// that had an element
+		if (lastNode) {
+			return lastNode.element;
+		}
 	}
 }
