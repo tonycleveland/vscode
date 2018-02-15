@@ -10,16 +10,12 @@ import * as crypto from 'crypto';
 import { TPromise } from 'vs/base/common/winjs.base';
 import { IIntegrityService, IntegrityTestResult, ChecksumPair } from 'vs/platform/integrity/common/integrity';
 import { IMessageService } from 'vs/platform/message/common/message';
-import product from 'vs/platform/product';
+import product from 'vs/platform/node/product';
 import URI from 'vs/base/common/uri';
 import Severity from 'vs/base/common/severity';
 import { Action } from 'vs/base/common/actions';
 import { IStorageService, StorageScope } from 'vs/platform/storage/common/storage';
-
-interface ILoaderChecksums {
-	[scriptSrc: string]: string;
-}
-
+import { ILifecycleService, LifecyclePhase } from 'vs/platform/lifecycle/common/lifecycle';
 
 interface IStorageData {
 	dontShowPrompt: boolean;
@@ -27,7 +23,7 @@ interface IStorageData {
 }
 
 class IntegrityStorage {
-	private static KEY = 'integrityService';
+	private static readonly KEY = 'integrityService';
 
 	private _storageService: IStorageService;
 	private _value: IStorageData;
@@ -65,11 +61,12 @@ export class IntegrityServiceImpl implements IIntegrityService {
 
 	private _messageService: IMessageService;
 	private _storage: IntegrityStorage;
-	private _isPurePromise: TPromise<IntegrityTestResult>;
+	private _isPurePromise: Thenable<IntegrityTestResult>;
 
 	constructor(
 		@IMessageService messageService: IMessageService,
-		@IStorageService storageService: IStorageService
+		@IStorageService storageService: IStorageService,
+		@ILifecycleService private lifecycleService: ILifecycleService
 	) {
 		this._messageService = messageService;
 		this._storage = new IntegrityStorage(storageService);
@@ -100,7 +97,7 @@ export class IntegrityServiceImpl implements IIntegrityService {
 		);
 		const dontShowAgainAction = new Action(
 			'integrity.dontShowAgain',
-			nls.localize('integrity.dontShowAgain', "Don't show again"),
+			nls.localize('integrity.dontShowAgain', "Don't Show Again"),
 			null,
 			true,
 			() => {
@@ -129,14 +126,14 @@ export class IntegrityServiceImpl implements IIntegrityService {
 		});
 	}
 
-	public isPure(): TPromise<IntegrityTestResult> {
+	public isPure(): Thenable<IntegrityTestResult> {
 		return this._isPurePromise;
 	}
 
-	private _isPure(): TPromise<IntegrityTestResult> {
+	private _isPure(): Thenable<IntegrityTestResult> {
 		const expectedChecksums = product.checksums || {};
 
-		return TPromise.timeout(10000).then(() => {
+		return this.lifecycleService.when(LifecyclePhase.Eventually).then(() => {
 			let asyncResults: TPromise<ChecksumPair>[] = Object.keys(expectedChecksums).map((filename) => {
 				return this._resolve(filename, expectedChecksums[filename]);
 			});
@@ -146,6 +143,7 @@ export class IntegrityServiceImpl implements IIntegrityService {
 				for (let i = 0, len = allResults.length; isPure && i < len; i++) {
 					if (!allResults[i].isPure) {
 						isPure = false;
+						break;
 					}
 				}
 

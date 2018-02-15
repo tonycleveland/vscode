@@ -12,13 +12,14 @@ let _isLinux = false;
 let _isRootUser = false;
 let _isNative = false;
 let _isWeb = false;
-let _isQunit = false;
-let _locale = undefined;
-let _language = undefined;
+let _locale: string = undefined;
+let _language: string = undefined;
+let _translationsConfigFile: string = undefined;
 
 interface NLSConfig {
 	locale: string;
 	availableLanguages: { [key: string]: string; };
+	_translationsConfigFile: string;
 }
 
 export interface IProcessEnvironment {
@@ -56,6 +57,7 @@ if (typeof process === 'object') {
 			_locale = nlsConfig.locale;
 			// VSCode's default language is 'en'
 			_language = resolved ? resolved : LANGUAGE_DEFAULT;
+			_translationsConfigFile = nlsConfig._translationsConfigFile;
 		} catch (e) {
 		}
 	}
@@ -68,7 +70,6 @@ if (typeof process === 'object') {
 	_isWeb = true;
 	_locale = navigator.language;
 	_language = _locale;
-	_isQunit = !!(<any>self).QUnit;
 }
 
 export enum Platform {
@@ -78,7 +79,7 @@ export enum Platform {
 	Windows
 }
 
-export let _platform: Platform = Platform.Web;
+let _platform: Platform = Platform.Web;
 if (_isNative) {
 	if (_isMacintosh) {
 		_platform = Platform.Mac;
@@ -95,7 +96,6 @@ export const isLinux = _isLinux;
 export const isRootUser = _isRootUser;
 export const isNative = _isNative;
 export const isWeb = _isWeb;
-export const isQunit = _isQunit;
 export const platform = _platform;
 
 /**
@@ -112,6 +112,11 @@ export const language = _language;
  */
 export const locale = _locale;
 
+/**
+ * The translatios that are available through language packs.
+ */
+export const translationsConfigFile = _translationsConfigFile;
+
 export interface TimeoutToken {
 }
 
@@ -124,17 +129,32 @@ interface IGlobals {
 	clearTimeout(token: TimeoutToken): void;
 
 	setInterval(callback: (...args: any[]) => void, delay: number, ...args: any[]): IntervalToken;
-	clearInterval(token: IntervalToken);
+	clearInterval(token: IntervalToken): void;
 }
 
 const _globals = <IGlobals>(typeof self === 'object' ? self : global);
 export const globals: any = _globals;
 
-export function hasWebWorkerSupport(): boolean {
-	return typeof _globals.Worker !== 'undefined';
-}
 export const setTimeout = _globals.setTimeout.bind(_globals);
 export const clearTimeout = _globals.clearTimeout.bind(_globals);
 
 export const setInterval = _globals.setInterval.bind(_globals);
 export const clearInterval = _globals.clearInterval.bind(_globals);
+
+export const enum OperatingSystem {
+	Windows = 1,
+	Macintosh = 2,
+	Linux = 3
+}
+export const OS = (_isMacintosh ? OperatingSystem.Macintosh : (_isWindows ? OperatingSystem.Windows : OperatingSystem.Linux));
+
+export const enum AccessibilitySupport {
+	/**
+	 * This should be the browser case where it is not known if a screen reader is attached or no.
+	 */
+	Unknown = 0,
+
+	Disabled = 1,
+
+	Enabled = 2
+}

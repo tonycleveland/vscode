@@ -6,7 +6,8 @@
 
 import { Range } from 'vs/editor/common/core/range';
 import { Selection } from 'vs/editor/common/core/selection';
-import { ICommand, ICursorStateComputerData, IEditOperationBuilder, ITokenizedModel } from 'vs/editor/common/editorCommon';
+import { ICommand, ICursorStateComputerData, IEditOperationBuilder } from 'vs/editor/common/editorCommon';
+import { ITextModel } from 'vs/editor/common/model';
 
 export class SurroundSelectionCommand implements ICommand {
 	private _range: Selection;
@@ -19,15 +20,15 @@ export class SurroundSelectionCommand implements ICommand {
 		this._charAfterSelection = charAfterSelection;
 	}
 
-	public getEditOperations(model: ITokenizedModel, builder: IEditOperationBuilder): void {
-		builder.addEditOperation(new Range(
+	public getEditOperations(model: ITextModel, builder: IEditOperationBuilder): void {
+		builder.addTrackedEditOperation(new Range(
 			this._range.startLineNumber,
 			this._range.startColumn,
 			this._range.startLineNumber,
 			this._range.startColumn
 		), this._charBeforeSelection);
 
-		builder.addEditOperation(new Range(
+		builder.addTrackedEditOperation(new Range(
 			this._range.endLineNumber,
 			this._range.endColumn,
 			this._range.endLineNumber,
@@ -35,10 +36,10 @@ export class SurroundSelectionCommand implements ICommand {
 		), this._charAfterSelection);
 	}
 
-	public computeCursorState(model: ITokenizedModel, helper: ICursorStateComputerData): Selection {
-		var inverseEditOperations = helper.getInverseEditOperations();
-		var firstOperationRange = inverseEditOperations[0].range;
-		var secondOperationRange = inverseEditOperations[1].range;
+	public computeCursorState(model: ITextModel, helper: ICursorStateComputerData): Selection {
+		let inverseEditOperations = helper.getInverseEditOperations();
+		let firstOperationRange = inverseEditOperations[0].range;
+		let secondOperationRange = inverseEditOperations[1].range;
 
 		return new Selection(
 			firstOperationRange.endLineNumber,

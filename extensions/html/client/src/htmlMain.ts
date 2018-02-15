@@ -5,44 +5,39 @@
 'use strict';
 
 import * as path from 'path';
-
-import { languages, workspace, ExtensionContext, IndentAction, commands, CompletionList, Hover } from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, Position, RequestType, Protocol2Code, Code2Protocol } from 'vscode-languageclient';
-import { CompletionList as LSCompletionList, Hover as LSHover } from 'vscode-languageserver-types';
-import { EMPTY_ELEMENTS } from './htmlEmptyTagsShared';
-import { initializeEmbeddedContentDocuments } from './embeddedContentDocuments';
-
 import * as nls from 'vscode-nls';
-let localize = nls.loadMessageBundle();
+const localize = nls.loadMessageBundle();
 
-interface EmbeddedCompletionParams {
-	uri: string;
-	version: number;
-	embeddedLanguageId: string;
-	position: Position;
+import { languages, ExtensionContext, IndentAction, Position, TextDocument, Color, ColorInformation, ColorPresentation, Range, CompletionItem, CompletionItemKind, SnippetString } from 'vscode';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, RequestType, TextDocumentPositionParams } from 'vscode-languageclient';
+import { EMPTY_ELEMENTS } from './htmlEmptyTagsShared';
+import { activateTagClosing } from './tagClosing';
+import TelemetryReporter from 'vscode-extension-telemetry';
+
+import { DocumentColorRequest, DocumentColorParams, ColorPresentationRequest, ColorPresentationParams } from 'vscode-languageserver-protocol/lib/protocol.colorProvider.proposed';
+
+namespace TagCloseRequest {
+	export const type: RequestType<TextDocumentPositionParams, string, any, any> = new RequestType('html/tag');
 }
 
-namespace EmbeddedCompletionRequest {
-	export const type: RequestType<EmbeddedCompletionParams, LSCompletionList, any> = { get method() { return 'embedded/completion'; } };
+interface IPackageInfo {
+	name: string;
+	version: string;
+	aiKey: string;
 }
 
-interface EmbeddedHoverParams {
-	uri: string;
-	version: number;
-	embeddedLanguageId: string;
-	position: Position;
-}
-
-namespace EmbeddedHoverRequest {
-	export const type: RequestType<EmbeddedHoverParams, LSHover, any> = { get method() { return 'embedded/hover'; } };
-}
+let telemetryReporter: TelemetryReporter | null;
 
 export function activate(context: ExtensionContext) {
+	let toDispose = context.subscriptions;
+
+	let packageInfo = getPackageInfo(context);
+	telemetryReporter = packageInfo && new TelemetryReporter(packageInfo.name, packageInfo.version, packageInfo.aiKey);
 
 	// The server is implemented in node
 	let serverModule = context.asAbsolutePath(path.join('server', 'out', 'htmlServerMain.js'));
 	// The debug options for the server
-	let debugOptions = { execArgv: ['--nolazy', '--debug=6004'] };
+	let debugOptions = { execArgv: ['--nolazy', '--inspect=6045'] };
 
 	// If the extension is launch in debug mode the debug server options are use
 	// Otherwise the run options are used
@@ -52,77 +47,82 @@ export function activate(context: ExtensionContext) {
 	};
 
 	let documentSelector = ['html', 'handlebars', 'razor'];
-	let embeddedLanguages = { 'css': true };
+	let embeddedLanguages = { css: true, javascript: true };
 
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
 		documentSelector,
 		synchronize: {
-			configurationSection: ['html'], // Synchronize the setting section 'html' to the server
+			configurationSection: ['html', 'css', 'javascript', 'emmet'], // the settings to synchronize
 		},
 		initializationOptions: {
-			embeddedLanguages,
-			['format.enable']: workspace.getConfiguration('html').get('format.enable')
+			embeddedLanguages
 		}
 	};
 
 	// Create the language client and start the client.
 	let client = new LanguageClient('html', localize('htmlserver.name', 'HTML Language Server'), serverOptions, clientOptions);
-
-	let embeddedDocuments = initializeEmbeddedContentDocuments(documentSelector, embeddedLanguages, client);
-	context.subscriptions.push(embeddedDocuments);
-
-	client.onRequest(EmbeddedCompletionRequest.type, params => {
-		let position = Protocol2Code.asPosition(params.position);
-		let virtualDocumentURI = embeddedDocuments.getEmbeddedContentUri(params.uri, params.embeddedLanguageId);
-
-		return embeddedDocuments.openEmbeddedContentDocument(virtualDocumentURI, params.version).then(document => {
-			if (document) {
-				return commands.executeCommand<CompletionList>('vscode.executeCompletionItemProvider', virtualDocumentURI, position).then(completionList => {
-					if (completionList) {
-						return {
-							isIncomplete: completionList.isIncomplete,
-							items: completionList.items.map(Code2Protocol.asCompletionItem)
-						};
-					}
-					return { isIncomplete: true, items: [] };
-				});
-			}
-			return { isIncomplete: true, items: [] };
-		});
-	});
-
-	client.onRequest(EmbeddedHoverRequest.type, params => {
-		let position = Protocol2Code.asPosition(params.position);
-		let virtualDocumentURI = embeddedDocuments.getEmbeddedContentUri(params.uri, params.embeddedLanguageId);
-		return embeddedDocuments.openEmbeddedContentDocument(virtualDocumentURI, params.version).then(document => {
-			if (document) {
-				return commands.executeCommand<Hover[]>('vscode.executeHoverProvider', virtualDocumentURI, position).then(hover => {
-					if (hover && hover.length > 0) {
-						return <LSHover>{
-							contents: hover[0].contents,
-							range: Code2Protocol.asRange(hover[0].range)
-						};
-					}
-					return void 0;
-				});
-			}
-			return void 0;
-		});
-	});
+	client.registerProposedFeatures();
 
 	let disposable = client.start();
+	toDispose.push(disposable);
+	client.onReady().then(() => {
+		disposable = languages.registerColorProvider(documentSelector, {
+			provideDocumentColors(document: TextDocument): Thenable<ColorInformation[]> {
+				let params: DocumentColorParams = {
+					textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(document)
+				};
+				return client.sendRequest(DocumentColorRequest.type, params).then(symbols => {
+					return symbols.map(symbol => {
+						let range = client.protocol2CodeConverter.asRange(symbol.range);
+						let color = new Color(symbol.color.red, symbol.color.green, symbol.color.blue, symbol.color.alpha);
+						return new ColorInformation(range, color);
+					});
+				});
+			},
+			provideColorPresentations(color, context): Thenable<ColorPresentation[]> {
+				let params: ColorPresentationParams = {
+					textDocument: client.code2ProtocolConverter.asTextDocumentIdentifier(context.document),
+					color,
+					range: client.code2ProtocolConverter.asRange(context.range)
+				};
+				return client.sendRequest(ColorPresentationRequest.type, params).then(presentations => {
+					return presentations.map(p => {
+						let presentation = new ColorPresentation(p.label);
+						presentation.textEdit = p.textEdit && client.protocol2CodeConverter.asTextEdit(p.textEdit);
+						presentation.additionalTextEdits = p.additionalTextEdits && client.protocol2CodeConverter.asTextEdits(p.additionalTextEdits);
+						return presentation;
+					});
+				});
+			}
+		});
+		toDispose.push(disposable);
 
-	// Push the disposable to the context's subscriptions so that the
-	// client can be deactivated on extension deactivation
-	context.subscriptions.push(disposable);
+		let tagRequestor = (document: TextDocument, position: Position) => {
+			let param = client.code2ProtocolConverter.asTextDocumentPositionParams(document, position);
+			return client.sendRequest(TagCloseRequest.type, param);
+		};
+		disposable = activateTagClosing(tagRequestor, { html: true, handlebars: true, razor: true }, 'html.autoClosingTags');
+		toDispose.push(disposable);
+
+		disposable = client.onTelemetry(e => {
+			if (telemetryReporter) {
+				telemetryReporter.sendTelemetryEvent(e.key, e.data);
+			}
+		});
+		toDispose.push(disposable);
+	});
 
 	languages.setLanguageConfiguration('html', {
+		indentationRules: {
+			increaseIndentPattern: /<(?!\?|(?:area|base|br|col|frame|hr|html|img|input|link|meta|param)\b|[^>]*\/>)([-_\.A-Za-z0-9]+)(?=\s|>)\b[^>]*>(?!.*<\/\1>)|<!--(?!.*-->)|\{[^}"']*$/,
+			decreaseIndentPattern: /^\s*(<\/(?!html)[-_\.A-Za-z0-9]+\b[^>]*>|-->|\})/
+		},
 		wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\$\^\&\*\(\)\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\s]+)/g,
 		onEnterRules: [
 			{
 				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
-				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>$/i,
+				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>/i,
 				action: { indentAction: IndentAction.IndentOutdent }
 			},
 			{
@@ -137,7 +137,7 @@ export function activate(context: ExtensionContext) {
 		onEnterRules: [
 			{
 				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
-				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>$/i,
+				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>/i,
 				action: { indentAction: IndentAction.IndentOutdent }
 			},
 			{
@@ -152,7 +152,7 @@ export function activate(context: ExtensionContext) {
 		onEnterRules: [
 			{
 				beforeText: new RegExp(`<(?!(?:${EMPTY_ELEMENTS.join('|')}))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!/)>)[^<]*$`, 'i'),
-				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>$/i,
+				afterText: /^<\/([_:\w][_:\w-.\d]*)\s*>/i,
 				action: { indentAction: IndentAction.IndentOutdent }
 			},
 			{
@@ -161,4 +161,45 @@ export function activate(context: ExtensionContext) {
 			}
 		],
 	});
+
+	const regionCompletionRegExpr = /^(\s*)(<(!(-(-\s*(#\w*)?)?)?)?)?$/;
+	languages.registerCompletionItemProvider(documentSelector, {
+		provideCompletionItems(doc, pos) {
+			let lineUntilPos = doc.getText(new Range(new Position(pos.line, 0), pos));
+			let match = lineUntilPos.match(regionCompletionRegExpr);
+			if (match) {
+				let range = new Range(new Position(pos.line, match[1].length), pos);
+				let beginProposal = new CompletionItem('#region', CompletionItemKind.Snippet);
+				beginProposal.range = range;
+				beginProposal.insertText = new SnippetString('<!-- #region $1-->');
+				beginProposal.documentation = localize('folding.start', 'Folding Region Start');
+				beginProposal.filterText = match[2];
+				beginProposal.sortText = 'za';
+				let endProposal = new CompletionItem('#endregion', CompletionItemKind.Snippet);
+				endProposal.range = range;
+				endProposal.insertText = new SnippetString('<!-- #endregion -->');
+				endProposal.documentation = localize('folding.end', 'Folding Region End');
+				endProposal.filterText = match[2];
+				endProposal.sortText = 'zb';
+				return [beginProposal, endProposal];
+			}
+			return null;
+		}
+	});
+}
+
+function getPackageInfo(context: ExtensionContext): IPackageInfo | null {
+	let extensionPackage = require(context.asAbsolutePath('./package.json'));
+	if (extensionPackage) {
+		return {
+			name: extensionPackage.name,
+			version: extensionPackage.version,
+			aiKey: extensionPackage.aiKey
+		};
+	}
+	return null;
+}
+
+export function deactivate(): Promise<any> {
+	return telemetryReporter ? telemetryReporter.dispose() : Promise.resolve(null);
 }

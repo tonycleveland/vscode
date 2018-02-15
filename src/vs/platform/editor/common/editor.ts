@@ -20,11 +20,6 @@ export interface IEditorService {
 	 * Specific overload to open an instance of IResourceInput.
 	 */
 	openEditor(input: IResourceInput, sideBySide?: boolean): TPromise<IEditor>;
-
-	/**
-	 * Specific overload to resolve a IResourceInput to an editor model with a text representation.
-	 */
-	resolveEditorModel(input: IResourceInput, refresh?: boolean): TPromise<ITextEditorModel>;
 }
 
 export interface IEditorModel {
@@ -42,11 +37,25 @@ export interface IEditorModel {
 	dispose(): void;
 }
 
-export interface ITextEditorModel extends IEditorModel {
-	textEditorModel: any;
+export interface IBaseResourceInput {
+
+	/**
+	 * Optional options to use when opening the text input.
+	 */
+	options?: ITextEditorOptions;
+
+	/**
+	 * Label to show for the diff editor
+	 */
+	label?: string;
+
+	/**
+	 * Description to show for the diff editor
+	 */
+	description?: string;
 }
 
-export interface IResourceInput {
+export interface IResourceInput extends IBaseResourceInput {
 
 	/**
 	 * The resource URL of the resource to open.
@@ -57,11 +66,60 @@ export interface IResourceInput {
 	 * The encoding of the text input if known.
 	 */
 	encoding?: string;
+}
+
+export interface IUntitledResourceInput extends IBaseResourceInput {
 
 	/**
-	 * Optional options to use when opening the text input.
+	 * Optional resource. If the resource is not provided a new untitled file is created.
 	 */
-	options?: ITextEditorOptions;
+	resource?: URI;
+
+	/**
+	 * Optional file path. Using the file resource will associate the file to the untitled resource.
+	 */
+	filePath?: string;
+
+	/**
+	 * Optional language of the untitled resource.
+	 */
+	language?: string;
+
+	/**
+	 * Optional contents of the untitled resource.
+	 */
+	contents?: string;
+
+	/**
+	 * Optional encoding of the untitled resource.
+	 */
+	encoding?: string;
+}
+
+export interface IResourceDiffInput extends IBaseResourceInput {
+
+	/**
+	 * The left hand side URI to open inside a diff editor.
+	 */
+	leftResource: URI;
+
+	/**
+	 * The right hand side URI to open inside a diff editor.
+	 */
+	rightResource: URI;
+}
+
+export interface IResourceSideBySideInput extends IBaseResourceInput {
+
+	/**
+	 * The right hand side URI to open inside a side by side editor.
+	 */
+	masterResource: URI;
+
+	/**
+	 * The left hand side URI to open inside a side by side editor.
+	 */
+	detailResource: URI;
 }
 
 export interface IEditorControl {
@@ -128,9 +186,36 @@ export enum Direction {
 	RIGHT
 }
 
+export enum Verbosity {
+	SHORT,
+	MEDIUM,
+	LONG
+}
+
+export interface IRevertOptions {
+
+	/**
+	 *  Forces to load the contents of the editor again even if the editor is not dirty.
+	 */
+	force?: boolean;
+
+	/**
+	 * A soft revert will clear dirty state of an editor but will not attempt to load it.
+	 */
+	soft?: boolean;
+}
+
 export interface IEditorInput extends IDisposable {
 
+	/**
+	 * Triggered when this input is disposed.
+	 */
 	onDispose: Event<void>;
+
+	/**
+	 * Returns the associated resource of this input.
+	 */
+	getResource(): URI;
 
 	/**
 	 * Returns the display name of this input.
@@ -140,12 +225,27 @@ export interface IEditorInput extends IDisposable {
 	/**
 	 * Returns the display description of this input.
 	 */
-	getDescription(verbose?: boolean): string;
+	getDescription(verbosity?: Verbosity): string;
+
+	/**
+	 * Returns the display title of this input.
+	 */
+	getTitle(verbosity?: Verbosity): string;
+
+	/**
+	 * Resolves the input.
+	 */
+	resolve(): TPromise<IEditorModel>;
 
 	/**
 	 * Returns if this input is dirty or not.
 	 */
 	isDirty(): boolean;
+
+	/**
+	 * Reverts this input.
+	 */
+	revert(options?: IRevertOptions): TPromise<boolean>;
 
 	/**
 	 * Returns if the other object matches this input.
@@ -169,9 +269,18 @@ export interface IEditorOptions {
 	forceOpen?: boolean;
 
 	/**
-	 * Will reveal the editor if it is already opened and visible in any of the opened editor groups.
+	 * Will reveal the editor if it is already opened and visible in any of the opened editor groups. Note
+	 * that this option is just a hint that might be ignored if the user wants to open an editor explicitly
+	 * to the side of another one.
 	 */
 	revealIfVisible?: boolean;
+
+	/**
+	 * Will reveal the editor if it is already opened (even when not visible) in any of the opened editor groups. Note
+	 * that this option is just a hint that might be ignored if the user wants to open an editor explicitly
+	 * to the side of another one.
+	 */
+	revealIfOpened?: boolean;
 
 	/**
 	 * An editor that is pinned remains in the editor stack even when another editor is being opened.
@@ -191,15 +300,27 @@ export interface IEditorOptions {
 	inactive?: boolean;
 }
 
+export interface ITextEditorSelection {
+	startLineNumber: number;
+	startColumn: number;
+	endLineNumber?: number;
+	endColumn?: number;
+}
+
 export interface ITextEditorOptions extends IEditorOptions {
 
 	/**
 	 * Text editor selection.
 	 */
-	selection?: {
-		startLineNumber: number;
-		startColumn: number;
-		endLineNumber?: number;
-		endColumn?: number;
-	};
+	selection?: ITextEditorSelection;
+
+	/**
+	 * Text editor view state.
+	 */
+	viewState?: object;
+
+	/**
+	 * Option to scroll vertically or horizontally as necessary and reveal a range centered vertically only if it lies outside the viewport.
+	 */
+	revealInCenterIfOutsideViewport?: boolean;
 }

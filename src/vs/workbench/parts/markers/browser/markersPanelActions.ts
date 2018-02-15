@@ -22,68 +22,51 @@ import { IPanelService } from 'vs/workbench/services/panel/common/panelService';
 import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { CollapseAllAction as TreeCollapseAction } from 'vs/base/parts/tree/browser/treeDefaults';
 import Tree = require('vs/base/parts/tree/browser/tree');
+import { IThemeService } from 'vs/platform/theme/common/themeService';
+import { attachInputBoxStyler } from 'vs/platform/theme/common/styler';
+import { IMarkersWorkbenchService } from 'vs/workbench/parts/markers/common/markers';
 
 export class ToggleMarkersPanelAction extends TogglePanelAction {
 
-	public static ID = 'workbench.actions.view.problems';
+	public static readonly ID = 'workbench.actions.view.problems';
+	public static readonly LABEL = Messages.MARKERS_PANEL_TOGGLE_LABEL;
 
 	constructor(id: string, label: string,
 		@IPartService partService: IPartService,
 		@IPanelService panelService: IPanelService,
-		@ITelemetryService private telemetryService: ITelemetryService
 	) {
 		super(id, label, Constants.MARKERS_PANEL_ID, panelService, partService);
-	}
-
-	public run(): TPromise<any> {
-		let promise = super.run();
-		if (this.isPanelFocussed()) {
-			this.telemetryService.publicLog('problems.used');
-		}
-		return promise;
 	}
 }
 
-export class ToggleErrorsAndWarningsAction extends TogglePanelAction {
+export class ShowProblemsPanelAction extends Action {
 
-	public static ID: string = 'workbench.action.showErrorsWarnings';
+	public static readonly ID = 'workbench.action.problems.focus';
+	public static readonly LABEL = Messages.MARKERS_PANEL_SHOW_LABEL;
 
 	constructor(id: string, label: string,
-		@IPartService partService: IPartService,
-		@IPanelService panelService: IPanelService,
-		@ITelemetryService private telemetryService: ITelemetryService
+		@IPanelService private panelService: IPanelService
 	) {
-		super(id, label, Constants.MARKERS_PANEL_ID, panelService, partService);
+		super(id, label);
 	}
 
 	public run(): TPromise<any> {
-		let promise = super.run();
-		if (this.isPanelFocussed()) {
-			this.telemetryService.publicLog('problems.used');
-		}
-		return promise;
+		return this.panelService.openPanel(Constants.MARKERS_PANEL_ID, true);
 	}
 }
 
 export class CollapseAllAction extends TreeCollapseAction {
 
-	constructor(viewer: Tree.ITree, enabled: boolean,
-		@ITelemetryService private telemetryService: ITelemetryService) {
+	constructor(viewer: Tree.ITree, enabled: boolean) {
 		super(viewer, enabled);
 	}
-
-	public run(context?: any): TPromise<any> {
-		this.telemetryService.publicLog('problems.collapseAll.used');
-		return super.run(context);
-	}
-
 }
 
 export class FilterAction extends Action {
 
 	public static ID: string = 'workbench.actions.problems.filter';
 
-	constructor(private markersPanel: MarkersPanel) {
+	constructor() {
 		super(FilterAction.ID, Messages.MARKERS_PANEL_ACTION_TOOLTIP_FILTER, 'markers-panel-action-filter', true);
 	}
 
@@ -97,6 +80,8 @@ export class FilterInputBoxActionItem extends BaseActionItem {
 
 	constructor(private markersPanel: MarkersPanel, action: IAction,
 		@IContextViewService private contextViewService: IContextViewService,
+		@IThemeService private themeService: IThemeService,
+		@IMarkersWorkbenchService private markersWorkbenchService: IMarkersWorkbenchService,
 		@ITelemetryService private telemetryService: ITelemetryService) {
 		super(markersPanel, action);
 		this.toDispose = [];
@@ -109,7 +94,8 @@ export class FilterInputBoxActionItem extends BaseActionItem {
 			placeholder: Messages.MARKERS_PANEL_FILTER_PLACEHOLDER,
 			ariaLabel: Messages.MARKERS_PANEL_FILTER_PLACEHOLDER
 		});
-		filterInputBox.value = this.markersPanel.markersModel.filterOptions.completeFilter;
+		this.toDispose.push(attachInputBoxStyler(filterInputBox, this.themeService));
+		filterInputBox.value = this.markersWorkbenchService.markersModel.filterOptions.completeFilter;
 		this.toDispose.push(filterInputBox.onDidChange(filter => this.delayedFilterUpdate.trigger(() => this.updateFilter(filter))));
 		this.toDispose.push(DOM.addStandardDisposableListener(filterInputBox.inputElement, 'keyup', (keyboardEvent) => this.onInputKeyUp(keyboardEvent, filterInputBox)));
 		this.toDispose.push(DOM.addStandardDisposableListener(container, 'keydown', this.handleKeyboardEvent));
@@ -123,9 +109,16 @@ export class FilterInputBoxActionItem extends BaseActionItem {
 
 	private reportFilteringUsed(): void {
 		let data = {};
-		data['errors'] = this.markersPanel.markersModel.filterOptions.filterErrors;
-		data['warnings'] = this.markersPanel.markersModel.filterOptions.filterWarnings;
-		data['infos'] = this.markersPanel.markersModel.filterOptions.filterInfos;
+		data['errors'] = this.markersWorkbenchService.markersModel.filterOptions.filterErrors;
+		data['warnings'] = this.markersWorkbenchService.markersModel.filterOptions.filterWarnings;
+		data['infos'] = this.markersWorkbenchService.markersModel.filterOptions.filterInfos;
+		/* __GDPR__
+			"problems.filter" : {
+				"errors" : { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+				"warnings": { "classification": "SystemMetaData", "purpose": "FeatureInsight" },
+				"infos": { "classification": "SystemMetaData", "purpose": "FeatureInsight" }
+			}
+		*/
 		this.telemetryService.publicLog('problems.filter', data);
 	}
 

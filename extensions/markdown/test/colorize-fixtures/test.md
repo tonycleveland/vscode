@@ -29,6 +29,8 @@ Alternate Header 2
 - Another one
 + Another one
 
+    + nested list
+
 This is a paragraph, which is text surrounded by
 whitespace. Paragraphs can be on one
 line (or many), and can drone on for hours.
@@ -45,6 +47,7 @@ in_words_are ignored.
 >> And, they can be nested
 
 1. A numbered list
+    > Block quotes in list
 2. Which is numbered
 3. With periods and a space
 

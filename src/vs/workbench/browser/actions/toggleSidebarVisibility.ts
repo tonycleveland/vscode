@@ -6,17 +6,17 @@
 
 import { TPromise } from 'vs/base/common/winjs.base';
 import nls = require('vs/nls');
-import { Registry } from 'vs/platform/platform';
+import { Registry } from 'vs/platform/registry/common/platform';
 import { Action } from 'vs/base/common/actions';
 import { SyncActionDescriptor } from 'vs/platform/actions/common/actions';
-import { IWorkbenchActionRegistry, Extensions } from 'vs/workbench/common/actionRegistry';
-import { IPartService } from 'vs/workbench/services/part/common/partService';
+import { IWorkbenchActionRegistry, Extensions } from 'vs/workbench/common/actions';
+import { IPartService, Parts } from 'vs/workbench/services/part/common/partService';
 import { KeyMod, KeyCode } from 'vs/base/common/keyCodes';
 
 export class ToggleSidebarVisibilityAction extends Action {
 
-	public static ID = 'workbench.action.toggleSidebarVisibility';
-	public static LABEL = nls.localize('toggleSidebar', "Toggle Side Bar Visibility");
+	public static readonly ID = 'workbench.action.toggleSidebarVisibility';
+	public static readonly LABEL = nls.localize('toggleSidebar', "Toggle Side Bar Visibility");
 
 	constructor(
 		id: string,
@@ -29,10 +29,8 @@ export class ToggleSidebarVisibilityAction extends Action {
 	}
 
 	public run(): TPromise<any> {
-		const hideSidebar = !this.partService.isSideBarHidden();
-		this.partService.setSideBarHidden(hideSidebar);
-
-		return TPromise.as(null);
+		const hideSidebar = this.partService.isVisible(Parts.SIDEBAR_PART);
+		return this.partService.setSideBarHidden(hideSidebar);
 	}
 }
 

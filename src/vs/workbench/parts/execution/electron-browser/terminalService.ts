@@ -10,10 +10,11 @@ import path = require('path');
 import processes = require('vs/base/node/processes');
 import nls = require('vs/nls');
 import errors = require('vs/base/common/errors');
+import { assign } from 'vs/base/common/objects';
 import { TPromise } from 'vs/base/common/winjs.base';
 import { ITerminalService } from 'vs/workbench/parts/execution/common/execution';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { ITerminalConfiguration, DEFAULT_TERMINAL_WINDOWS, DEFAULT_TERMINAL_LINUX, DEFAULT_TERMINAL_OSX } from 'vs/workbench/parts/execution/electron-browser/terminal';
+import { ITerminalConfiguration, DEFAULT_TERMINAL_WINDOWS, DEFAULT_TERMINAL_LINUX_READY, DEFAULT_TERMINAL_OSX } from 'vs/workbench/parts/execution/electron-browser/terminal';
 import uri from 'vs/base/common/uri';
 import { IProcessEnvironment } from 'vs/base/common/platform';
 
@@ -27,7 +28,7 @@ enum WinSpawnType {
 export class WinTerminalService implements ITerminalService {
 	public _serviceBrand: any;
 
-	private static CMD = 'cmd.exe';
+	private static readonly CMD = 'cmd.exe';
 
 	constructor(
 		@IConfigurationService private _configurationService: IConfigurationService
@@ -35,7 +36,7 @@ export class WinTerminalService implements ITerminalService {
 	}
 
 	public openTerminal(cwd?: string): void {
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 
 		this.spawnTerminal(cp, configuration, processes.getWindowsShell(), cwd)
 			.done(null, errors.onUnexpectedError);
@@ -43,7 +44,7 @@ export class WinTerminalService implements ITerminalService {
 
 	public runInTerminal(title: string, dir: string, args: string[], envVars: IProcessEnvironment): TPromise<void> {
 
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 		const terminalConfig = configuration.terminal.external;
 		const exec = terminalConfig.windowsExec || DEFAULT_TERMINAL_WINDOWS;
 
@@ -57,7 +58,10 @@ export class WinTerminalService implements ITerminalService {
 			];
 
 			// merge environment variables into a copy of the process.env
-			const env = extendObject(extendObject({}, process.env), envVars);
+			const env = assign({}, process.env, envVars);
+
+			// delete environment variables that have a null value
+			Object.keys(env).filter(v => env[v] === null).forEach(key => delete env[key]);
 
 			const options: any = {
 				cwd: dir,
@@ -113,21 +117,21 @@ export class WinTerminalService implements ITerminalService {
 export class MacTerminalService implements ITerminalService {
 	public _serviceBrand: any;
 
-	private static OSASCRIPT = '/usr/bin/osascript';	// osascript is the AppleScript interpreter on OS X
+	private static readonly OSASCRIPT = '/usr/bin/osascript';	// osascript is the AppleScript interpreter on OS X
 
 	constructor(
 		@IConfigurationService private _configurationService: IConfigurationService
 	) { }
 
 	public openTerminal(cwd?: string): void {
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 
 		this.spawnTerminal(cp, configuration, cwd).done(null, errors.onUnexpectedError);
 	}
 
 	public runInTerminal(title: string, dir: string, args: string[], envVars: IProcessEnvironment): TPromise<void> {
 
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 		const terminalConfig = configuration.terminal.external;
 		const terminalApp = terminalConfig.osxExec || DEFAULT_TERMINAL_OSX;
 
@@ -154,8 +158,14 @@ export class MacTerminalService implements ITerminalService {
 
 				if (envVars) {
 					for (let key in envVars) {
-						osaArgs.push('-e');
-						osaArgs.push(key + '=' + envVars[key]);
+						const value = envVars[key];
+						if (value === null) {
+							osaArgs.push('-u');
+							osaArgs.push(key);
+						} else {
+							osaArgs.push('-e');
+							osaArgs.push(`${key}=${value}`);
+						}
 					}
 				}
 
@@ -198,7 +208,7 @@ export class MacTerminalService implements ITerminalService {
 export class LinuxTerminalService implements ITerminalService {
 	public _serviceBrand: any;
 
-	private static WAIT_MESSAGE = nls.localize('press.any.key', "Press any key to continue...");
+	private static readonly WAIT_MESSAGE = nls.localize('press.any.key', "Press any key to continue...");
 
 	constructor(
 		@IConfigurationService private _configurationService: IConfigurationService
@@ -206,7 +216,7 @@ export class LinuxTerminalService implements ITerminalService {
 
 
 	public openTerminal(cwd?: string): void {
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 
 		this.spawnTerminal(cp, configuration, cwd)
 			.done(null, errors.onUnexpectedError);
@@ -214,77 +224,73 @@ export class LinuxTerminalService implements ITerminalService {
 
 	public runInTerminal(title: string, dir: string, args: string[], envVars: IProcessEnvironment): TPromise<void> {
 
-		const configuration = this._configurationService.getConfiguration<ITerminalConfiguration>();
+		const configuration = this._configurationService.getValue<ITerminalConfiguration>();
 		const terminalConfig = configuration.terminal.external;
-		const exec = terminalConfig.linuxExec || DEFAULT_TERMINAL_LINUX;
+		const execPromise = terminalConfig.linuxExec ? TPromise.as(terminalConfig.linuxExec) : DEFAULT_TERMINAL_LINUX_READY;
 
 		return new TPromise<void>((c, e) => {
 
 			let termArgs: string[] = [];
 			//termArgs.push('--title');
 			//termArgs.push(`"${TERMINAL_TITLE}"`);
-			if (exec.indexOf('gnome-terminal') >= 0) {
-				termArgs.push('-x');
-			} else {
-				termArgs.push('-e');
-			}
-			termArgs.push('bash');
-			termArgs.push('-c');
-
-			const bashCommand = `${quote(args)}; echo; read -p "${LinuxTerminalService.WAIT_MESSAGE}" -n1;`;
-			termArgs.push(`''${bashCommand}''`);	// wrapping argument in two sets of ' because node is so "friendly" that it removes one set...
-
-			// merge environment variables into a copy of the process.env
-			const env = extendObject(extendObject({}, process.env), envVars);
-
-			const options: any = {
-				cwd: dir,
-				env: env
-			};
-
-			let stderr = '';
-			const cmd = cp.spawn(exec, termArgs, options);
-			cmd.on('error', e);
-			cmd.stderr.on('data', (data) => {
-				stderr += data.toString();
-			});
-			cmd.on('exit', (code: number) => {
-				if (code === 0) {	// OK
-					c(null);
+			execPromise.then(exec => {
+				if (exec.indexOf('gnome-terminal') >= 0) {
+					termArgs.push('-x');
 				} else {
-					if (stderr) {
-						const lines = stderr.split('\n', 1);
-						e(new Error(lines[0]));
-					} else {
-						e(new Error(nls.localize('linux.term.failed', "'{0}' failed with exit code {1}", exec, code)));
-					}
+					termArgs.push('-e');
 				}
+				termArgs.push('bash');
+				termArgs.push('-c');
+
+				const bashCommand = `${quote(args)}; echo; read -p "${LinuxTerminalService.WAIT_MESSAGE}" -n1;`;
+				termArgs.push(`''${bashCommand}''`);	// wrapping argument in two sets of ' because node is so "friendly" that it removes one set...
+
+				// merge environment variables into a copy of the process.env
+				const env = assign({}, process.env, envVars);
+
+				// delete environment variables that have a null value
+				Object.keys(env).filter(v => env[v] === null).forEach(key => delete env[key]);
+
+				const options: any = {
+					cwd: dir,
+					env: env
+				};
+
+				let stderr = '';
+				const cmd = cp.spawn(exec, termArgs, options);
+				cmd.on('error', e);
+				cmd.stderr.on('data', (data) => {
+					stderr += data.toString();
+				});
+				cmd.on('exit', (code: number) => {
+					if (code === 0) {	// OK
+						c(null);
+					} else {
+						if (stderr) {
+							const lines = stderr.split('\n', 1);
+							e(new Error(lines[0]));
+						} else {
+							e(new Error(nls.localize('linux.term.failed', "'{0}' failed with exit code {1}", exec, code)));
+						}
+					}
+				});
 			});
 		});
 	}
 
 	private spawnTerminal(spawner, configuration: ITerminalConfiguration, cwd?: string): TPromise<void> {
 		const terminalConfig = configuration.terminal.external;
-		const exec = terminalConfig.linuxExec || DEFAULT_TERMINAL_LINUX;
+		const execPromise = terminalConfig.linuxExec ? TPromise.as(terminalConfig.linuxExec) : DEFAULT_TERMINAL_LINUX_READY;
 		const env = cwd ? { cwd: cwd } : void 0;
 
 		return new TPromise<void>((c, e) => {
-			const child = spawner.spawn(exec, [], env);
-			child.on('error', e);
-			child.on('exit', () => c(null));
+			execPromise.then(exec => {
+				const child = spawner.spawn(exec, [], env);
+				child.on('error', e);
+				child.on('exit', () => c(null));
+			});
 		});
 	}
-}
-
-function extendObject<T>(objectCopy: T, object: T): T {
-
-	for (let key in object) {
-		if (object.hasOwnProperty(key)) {
-			objectCopy[key] = object[key];
-		}
-	}
-
-	return objectCopy;
 }
 
 /**
